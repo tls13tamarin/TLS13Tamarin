@@ -33,7 +33,7 @@
 <h2>
 <a id="introduction" class="anchor" href="#introduction" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Introduction</h2>
 
-<p>The TLS protocol is used globally by millions of users on a daily basis,
+<p style="text-align:justify">The TLS protocol is used globally by millions of users on a daily basis,
 serving as the core building block for Internet security. The various flaws identified 
 in TLS 1.2 and below, be they implementation- or specification-based, have prompted 
 the TLS Working Group to adopt an "analysis-before-deployment" design paradigm in 
@@ -41,21 +41,21 @@ drafting the next version of the protocol. After a development process of
 many months, the <a href="https://github.com/tlswg/tls13-spec">TLS 1.3 specification</a>
 is nearly complete. </p>
 
-<p>In the spirit of contributing 
+<p style="text-align:justify">In the spirit of contributing 
 towards this new design philosophy, we model the TLS 1.3 specification using 
 the Tamarin prover, a tool for the automated analysis of security protocols. 
 We show that <a href="https://tools.ietf.org/html/draft-ietf-tls-tls13-10">revision 10 of the specification</a> meets the goals of authenticated 
 key exchange for any combination of unilaterally and mutually authenticated
 handshakes. </p>
 
-<p>By extending our revision 10 model to incorporate the desired delayed client
+<p style="text-align:justify">By extending our revision 10 model to incorporate the desired delayed client
 authentication mechanism, we uncovered a potential attack in which an
 adversary is able to successfully impersonate a client during a
 PSK-resumption handshake.  Our attack highlighted the
 strict necessity of including more information in the client signature contents. The IETF TLS Working Group updated
 <a href="https://tools.ietf.org/html/draft-ietf-tls-tls13-11">revision 11 of the TLS 1.3 specification draft</a> based on our report.</p>
 
-<p>Our work provides the first supporting evidence for the security of
+<p style="text-align:justify">Our work provides the first supporting evidence for the security of
 several complex protocol mode interactions in TLS 1.3. Our formal 
 model can be extended to future releases, 
 thus being of long-lasting benefit.
@@ -64,14 +64,14 @@ We give a brief overview of our methodology in the following sections.</p>
 <h2>
 <a id="tls-13" class="anchor" href="#tls-13" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>TLS 1.3</h2>
 
-<p>The new handshake modes of TLS 1.3 include a 1-RTT initial (EC)DHE mode, 
+<p style="text-align:justify">In comparison to TLS 1.2, TLS 1.3 encrypts more of the handshake, reduces handshake latency and employs only AEAD schemes. The new handshake modes of TLS 1.3 include a 1-RTT initial (EC)DHE mode, 
 a 0-RTT mode, a (Pre-Shared Key) PSK mode and a PSK-DHE mode. 
 For further details see the <a href="https://github.com/tlswg/tls13-spec">TLS 1.3 specification draft</a>.</p>
 
 <h2>
-<a id="building-a-model" class="anchor" href="#building-a-model" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Building a model</h2>
+<a id="building-a-model" class="anchor" href="#building-a-model" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Building a Model</h2>
 
-<p>For our analysis, we use the Tamarin prover, a 
+<p style="text-align:justify">For our analysis, we use the Tamarin prover, a 
 tool for the symbolic analysis of security protocols. Tamarin
 enables us to precisely specify and analyse the secrecy and
 authentication properties of the various handshake modes. Furthermore,
@@ -83,7 +83,7 @@ The tool and further documentation can be
 found on its 
 <a href="https://github.com/tamarin-prover/tamarin-prover">webpage</a>. </p>
 
-<p>The first step of our analysis is to construct an abstraction of the 
+<p style="text-align:justify">The first step of our analysis is to construct an abstraction of the 
 handshake and record protocols which we then encode as Tamarin rules. Rules capture 
 honest-party and adversary actions alike. In the case of legitimate clients and servers, 
 our constructed model rules generally correspond to all processing actions
@@ -94,12 +94,12 @@ This rule, <code>C_1</code>, is visible in the client state machine diagram belo
 represents the union of all the options that a client has in different executions. </p>
 
 <img alt="Client state machines for TLS 1.3 revision 10" src="img/client-sm.png">
-<p>Partial client state machines for TLS 1.3 revision 10, as modelled in our analysis.</p>
+<p style="text-align:justify">Partial client state machines for TLS 1.3 revision 10, as modelled in our analysis.</p>
 
 <h2>
 <a id="proving-stated-goals-and-security-properties" class="anchor" href="#proving-stated-goals-and-security-properties" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Proving Stated Goals and Security Properties</h2>
 
-<p>The second step of the analysis involves encoding the desired security properties as 
+<p style="text-align:justify">The second step of the analysis involves encoding the desired security properties as 
 Tamarin lemmas. The goal of the TLS handshake protocol is 
 to allow for unilateral or, optionally, mutual entity authentication of communicating
 parties, as well as to establish a shared secret that is unavailable to 
@@ -114,33 +114,33 @@ and integrity of application data. Hence, we encode the following properties as 
 <li>integrity of handshake messages.</li>
 </ul>
 
-<p>and aim to show that each property holds. </p>
+<p style="text-align:justify">and aim to show that each property holds. </p>
 
 <p>While Tamarin can automatically construct proofs for simple protocols,
 its proof-finding heuristics are not yet strong enough to automatically
 generate full proofs for TLS 1.3.
 In practice this meant that we augmented Tamarin's search with substantial manual effort: inspecting partial proofs and deducing appropriate hints (in the form of lemmas) to guide Tamarin's proof search.</p>
 
-<p>Using this approach, we establish that revision 10 of the TLS 1.3 specification meets the goals of 
+<p style="text-align:justify">Using this approach, we establish that revision 10 of the TLS 1.3 specification meets the goals of 
 authenticated key exchange in all possible combinations of 
 client, server, and adversary behaviours. </p>
 
 <h2>
 <a id="attacking-client-authentication" class="anchor" href="#attacking-client-authentication" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Attacking Client Authentication</h2>
 
-<p>In extending our revision 10 model to include the <a href="https://www.ietf.org/proceedings/93/slides/slides-93-tls-2.pdf">delayed client authentication mechanism</a>
+<p style="text-align:justify">In extending our revision 10 model to include the <a href="https://www.ietf.org/proceedings/93/slides/slides-93-tls-2.pdf">delayed client authentication mechanism</a>
 as proposed by the TLS Working Group, we found an attack which violates client authentication, as an 
 adversary can can impersonate a client when communicating with a server. The 
 attack is similar to the <a href="https://mitls.org/pages/attacks/3SHAKE">Triple Handshake attack</a> and works as follows: </p>
 
-<p>Handshake 1: Alice (the victim client) starts a connection with Charlie (the man-in-the-middle),
+<p style="text-align:justify">Step 1: Alice (the victim client) starts a connection with Charlie (the man-in-the-middle),
 and Charlie starts a connection with Bob (the targeted server). In both connections
 a PSK is established. Alice shares <code>PSK_1</code> with Charlie and Charlie shares <code>PSK_2</code> 
 with Bob. </p>
 
 <img src="img/att1.png">
 
-<p>Handshake 2: Alice resumes a connection with Charlie using <code>PSK_1</code>. Alice generates 
+<p style="text-align:justify">Step 2: Alice resumes a connection with Charlie using <code>PSK_1</code>. Alice generates 
 a random nonce <code>nc</code> and this is sent to Charlie. Charlie reuses this nonce
 to initiate a PSK-resumption handshake with Bob. Bob responds with a random 
 nonce <code>ns</code>, and the server Finished message, computed using <code>PSK_2</code>. Charlie
@@ -152,7 +152,7 @@ derived from <code>PSK_1</code> and Charlie and Bob share session keys derived f
 
 <img src="img/att2.png">
 
-<p>Handshake 3: Following resumption, Charlie attempts to make a request of Bob that 
+<p style="text-align:justify">Step 3: Following resumption, Charlie attempts to make a request of Bob that 
 requires client authentication. Charlie is subsequently prompted for his 
 certificate and verification.  Charlie re-encrypts this request for Alice. 
 To compute the verification signature, Alice uses the <code>session_hash</code> value, which is 
@@ -163,7 +163,7 @@ who accepts Alice's certificate and verification as valid authentication for Cha
 
 <img src="img/att3.png">
 
-<p>The attack is possible due to the lack of a strong binding between the client signature 
+<p style="text-align:justify">The attack is possible due to the lack of a strong binding between the client signature 
 and the session for which that signature is intended. We note that revision 11 
 of the TLS 1.3 specification defines the client signature based on a Handshake Context 
 value that includes the <code>Finished</code> message. This appears to address the attack as 
@@ -175,13 +175,13 @@ Group was unaware of the strict requirement to mitigate this attack.</p>
 <h2>
 <a id="downloads" class="anchor" href="#downloads" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Downloads</h2>
 
-<p>Download the <a href="docs/tls13tamarin.pdf">technical paper</a>.<br>
+<p style="text-align:justify">Download the <a href="docs/tls13tamarin.pdf">technical paper</a>.<br>
 Download the Real World Crypto <a href="http://www.realworldcrypto.com/rwc2016/program/Automated%20Analysis%20of%20TLS%201.3%20RWC2016.pdf?attredirects=0&amp;d=1">slides</a>. </p>
 
 <h2>
 <a id="support" class="anchor" href="#support" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Support</h2>
 
-<p>Part of this work was completed whilst Sam Scott and Thyla van der Merwe were interns at Mozilla. We would like to thank Eric Rescorla, Martin Thomson and the TLS
+<p style="text-align:justify">Part of this work was completed whilst Sam Scott and Thyla van der Merwe were interns at Mozilla. We would like to thank Eric Rescorla, Martin Thomson and the TLS
 Working Group for their invaluable inputs to this work by way of numerous
 clarifying conversations. </p>
 
