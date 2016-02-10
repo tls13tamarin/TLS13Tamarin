@@ -1,0 +1,92 @@
+define(<!lemma_tid_invariant!>,
+<!lemma tid_invariant [use_induction, reuse]:
+  "All tid actor role #i. Instance(tid, actor, role)@i==>
+      (Ex #j. Start(tid, actor, role)@j & (#j < #i))"
+!>) dnl
+dnl
+define(<!lemma_one_start_per_tid!>,
+<!lemma one_start_per_tid [use_induction, reuse]:
+  "All tid actor actor2 role role2 #i #j. Start(tid, actor, role)@i & Start(tid, actor2, role2)@j ==>#i=#j"
+!>)dnl
+dnl
+define(<!lemma_nonce_misuse!>,
+<!lemma nonce_misuse [reuse]:
+  "All tid actor role #i. Start(tid, actor, role)@i==>
+      (not Ex actor2 #j. DH(actor2, tid)@j) & 
+      (not Ex actor2 #j. GenLtk(actor2, tid)@j) &
+      (not Ex psk_id #j. FreshPSK(psk_id,tid)@j) &
+      (not Ex tid2 #j. SendData(tid2, tid)@j)"
+!>)dnl
+dnl
+define(<!lemma_data_misuse!>,
+<!lemma data_misuse [reuse]:
+  "All tid x #i. SendData(tid, x)@i==>
+      (not Ex actor #j. DH(actor, x)@j) & 
+      (not Ex actor #j. GenLtk(actor, x)@j) &
+      (not Ex psk_id #j. FreshPSK(psk_id,x)@j) &
+      (not Ex actor role #j. Instance(x, actor, role)@j)"
+!>)dnl
+dnl
+define(<!lemma_psk_id_origin!>,
+<!lemma psk_id_origin [reuse]:
+  "All tid psk_id #i. RecvId(tid, psk_id)@i ==> 
+  	((Ex tid2 #r. SendData(tid2, psk_id)@r & #r < #i) | (Ex #r. KU(psk_id)@r & #r < #i))"
+!>)dnl
+dnl
+define(<!lemma_pk_origin!>,
+<!lemma pk_origin [reuse]:
+  "All actor ltk #i. UsePK(actor, pk(ltk))@i ==> 
+    Ex #j. GenLtk(actor, ltk)@j & #j < #i"
+!>)dnl
+dnl
+define(<!lemma_ltk_invariant!>,
+<!lemma ltk_invariant [reuse]:
+  "All actor ltk #i #j. GenLtk(actor, ltk)@i & KU(ltk)@j ==> 
+    Ex #r. RevLtk(actor)@r & #r < #j"
+!>)dnl
+dnl
+define(<!lemma_fresh_psk!>,
+<!lemma fresh_psk [reuse]:
+  "All actor peer role psk_id rs #i #j.
+    CommitPSK(actor, peer, role, <psk_id, rs>)@i & FreshPSK(psk_id,rs)@j ==>
+      not Ex #a. KU(rs)@a"
+!>)dnl
+define(<!lemma_static_dh_invariant!>,
+<!lemma static_dh_invariant [reuse, use_induction]:
+  "All actor x #i. UseServerDH(actor, x)@i ==> 
+    Ex #j. GenServerDH(actor, x)@j & #j < #i"
+!>)dnl
+define(<!lemma_server_config_origin!>,
+<!lemma server_config_origin [reuse, use_induction]:
+  "All actor y config_hash #i. UseServerConfig(actor, y, config_hash)@i ==>
+    Ex #j. UseServerDH(actor, y)@j & #j < #i"
+!>)dnl
+define(<!lemma_psk_invariant!>,
+<!lemma psk_invariant [reuse, use_induction]:
+  "All actor peer psk_id rs role auth_status #i. UsePSK(actor, psk_id, peer, rs, role, auth_status)@i ==> 
+    (Ex #j. RunningPSK(actor,peer, role, <psk_id,rs>)@j & AuthStatus(actor, peer, role, auth_status)@j & #j < #i) | 
+    (Ex #j role2. FreshPSK(psk_id,rs)@j & GenPSK(actor, role)@j & GenPSK(peer, role2)@j & #j < #i & not role2 = role & auth_status = 'no_auth')"
+!>)dnl
+define(<!lemma_session_origin!>,
+<!lemma session_origin [reuse, use_induction]:
+    "All tid actor peer role ss es messages #i.
+        SessionData(tid, <actor, peer, role, ss, es, messages>)@i ==>
+        Ex #j #k. RunningTranscript(actor, peer, role, messages)@j
+        & RunningSecrets(actor, peer, role, <ss, es>)@j & (Instance(tid, actor, role)@j | Start(tid, actor, role)@j) &
+          FinishedHandshake(tid, actor, role)@k & #j < #i & #k < #i"
+!>)dnl
+define(<!lemma_finished_invariant!>,
+<!lemma finished_invariant [reuse]:
+    "All tid actor role actor2 role2 #i #j.
+       FinishedHandshake(tid, actor, role)@i & FinishedHandshake(tid, actor2, role2)@j ==> #i = #j"
+!>)dnl
+define(<!lemma_injectivity!>,
+<!lemma C1_before_Retry [reuse, use_induction]:
+  "All tid #j. C1_Retry(tid) @ j ==> (Ex #i. C1(tid) @ i & i < j)"
+
+lemma Retry_before_C2 [reuse, use_induction]:
+  "All tid #i #j. C1_Retry(tid)@i & C2(tid)@j ==> #i < #j"
+
+lemma C2_uniq [reuse]:
+  "All tid #i #j. C2(tid)@i & C2(tid)@j ==> #i = #j"
+!>)dnl

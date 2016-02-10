@@ -1,0 +1,35 @@
+define(<!lemma_psk_helpers_both!>,
+<!
+lemma psk_helper_client [reuse, use_induction]:
+    "All actor psk_id peer rs auth_status #i. 
+        UsePSK(actor, psk_id, peer, rs, 'client', auth_status)@i ==>
+            (Ex ss es session_hash #a. 
+                RunningSecrets(actor, peer, 'client', <ss, es>)@a & 
+                RunningTranscript(actor, peer, 'client', session_hash)@a & #a < #i & rs = RS) |
+                (Ex psk_id #a. GenPSK(actor, 'client')@a & FreshPSK(psk_id, rs)@a)"
+lemma psk_helper_server [reuse, use_induction]:
+    "All actor psk_id peer rs auth_status #i. 
+        UsePSK(actor, psk_id, peer, rs, 'server', auth_status)@i ==>
+            (Ex ss es session_hash #a. 
+                RunningSecrets(actor, peer, 'server', <ss, es>)@a & 
+                RunningTranscript(actor, peer, 'server', session_hash)@a & #a < #i & rs = RS) |
+                (Ex psk_id #a. GenPSK(actor, 'server')@a & FreshPSK(psk_id, rs)@a)"
+!>)dnl
+define(<!lemma_psk_helper!>,
+<!
+lemma psk_helper [reuse, use_induction]:
+    "All actor actor2 psk_id psk_id2 peer peer2 rs auth_status auth_status2 #i #j. 
+        UsePSK(actor, psk_id, peer, rs, 'client', auth_status)@i &
+        UsePSK(actor2, psk_id2, peer2, rs, 'server', auth_status2)@j
+            ==>
+                (actor2 = peer)"
+!>)dnl
+define(<!lemma_authenticated_psk!>,
+<!
+lemma authenticated_psk [reuse, use_induction]:
+  "All actor peer psk_id rs #i #j. 
+    UsePSK(actor, psk_id,  peer, rs, 'server', 'authenticated')@i & KU(rs)@j ==>
+      Ex ss es #a #b #r #s. 
+        CommitES(actor, peer, 'server', es)@a & CommitSS(actor, peer, 'server', ss)@b & #a < #i & #b < #i & 
+        KU(ss)@r & KU(es)@s & #r < #j & #s < #j"
+!>)dnl

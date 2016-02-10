@@ -1,0 +1,112 @@
+Unbounded symbolic verification of TLS 1.3, Proposal A, rev 06
+**************************************************************
+
+(Internal SVN revision: r6675)
+
+Requirements:
+  - Ensure you have the Haskell platform installed (ghc) and a few
+    related development packages 
+    (for Debian/Ubuntu: maude graphviz zlib1g-dev ) 
+  - Installing Tamarin's development branch (/develop) from github.
+    We've succesfully done this for GHC 7.6.3, which is the version of
+    current Ubuntu installations.
+  - Ensure you have 'cpp' installed.
+
+The files in this directory cannot be used for Tamarin directly because
+they use macro constructions for 'cpp'.  To pre-process the Tamarin
+theory files in this directory, run "make". This yields '.spthy' files
+that can be read by Tamarin.
+
+If tamarin-prover is in the PATH, the theory files can then
+be loaded into Tamarin's GUI by running
+
+  tamarin-prover interactive .
+
+in the folder containing the theory file (mind the period!).
+
+The theories can then be opened in the Tamarin GUI by visiting
+
+  http://localhost:3001
+
+in your favourite browser (which is of course Firefox :-)).
+
+NOTE: secret0rtt.cpp and 0rtt.h are under construction, and
+are broken models of rev 07. A draft pertaining to rev 06
+is in TLS-13-draft.pdf, and will be updated for rev 07 soon.
+
+Results
+*******
+
+---------------------------
+With an unbounded number of 
+---------------------------
+
+-retries
+
+------------------------------------------------------
+and an unbounded number and arbitrary interleavings of
+------------------------------------------------------
+
+-resumes and
+-application data transmissions
+
+--------
+we prove
+--------
+
+-session key secrecy (cf. secret_sessionkeys.cpp)
+
+---------------------------------------------
+with respect to an attacker who is capable of
+---------------------------------------------
+
+-active attacks: reordering, injecting, and tampering with messages,
+-Long-Term Key Reveal: both AKC (KCI) and PFS enabled (i.e. any
+non-peer keys can be revealed, and any after test session), and
+-DH-Exponent Reveal: non-test sessions, non-partner sessions
+
+-----------
+in both the
+-----------
+
+-unilaterally authenticated mode (cf. proofs-mutual.spthy), and
+-mutually authenticated mode (cf. proofs-unilat.spthy).
+
+NOTE: Comment out "#define MUTUALAUTH" in TLS-13-resum.h to switch
+off client authentication. 
+
+-----------------------------------------------------------------
+Additionally, we prove the existence of a trace in which there is
+-----------------------------------------------------------------
+
+-one retry, then
+-one full handshake, then
+-one resume, then
+-one client application data send, and finally
+-one server receive (cf. proof-send_appdata_possible.spthy).
+
+-------------------------------
+We did not get round to proving
+-------------------------------
+
+-secrecy of application data, or
+-authentication properties, etc.
+
+
+Technicalities:
+
+-Tamarin protocol model/header file: TLS-13-resum.h
+-property files: secret_sessionkeys.cpp, send_appdata_possible.cpp
+-generated theories: secret_sessionkeys.spthy, send_appdata_possible.spthy
+-proof files: proofs-*.spthy, proof-send_appdata_possible-*.spthy
+(the proof-* files can be loaded into Tamarin, but not proofs-* due to bug)
+-other files: Makefile, README
+-lemmas in property files which are _not_ auto-provable:
+ -tid_invariant
+ -fresh_secret
+ -pms_invariant
+ -pms_secret
+ -secret_sessionkeys
+ -send_appdata_possible
+(check how to manually prove all these in the proof files!)
+

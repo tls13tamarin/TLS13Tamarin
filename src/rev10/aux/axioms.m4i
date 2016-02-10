@@ -1,0 +1,14 @@
+/* AXIOMS */
+
+/* Explicit equality checking */
+axiom Eq_check_succeed: "All x y #i. Eq(x,y) @ i ==> x = y"
+axiom Neq_check_succeed: "All x y #i. Neq(x,y) @ i ==> not (x = y)"
+
+/* Generate one long-term key per actor */
+axiom one_ltk:
+  "All A x y #i #j.
+    GenLtk(A, x)@i & GenLtk(A, y)@j ==> #i = #j"
+
+axiom one_role_per_actor:
+    "All actor tid tid2 role role2 #i #j. Start(tid, actor, role)@i & Start(tid2, actor, role2)@j
+        ==> role = role2"

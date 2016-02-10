@@ -1,0 +1,99 @@
+/*
+  Helper Lemmas
+  --------------
+
+  The following lemmas extract common parts of the lemma proofs
+  into small, digestable and (hopefully) auto-provable chunks.
+
+*/
+define(<!lemma_key_deriv!>,<!
+lemma key_deriv_rs [reuse]:
+  "All ss es session_hash #i. KU(RS)@i ==> Ex #j #k. KU(ss)@j & KU(es)@k & #j < #i & #k < #i"
+
+lemma key_deriv_hkeys [reuse]:
+  "All es hs_hashs #i. KU(HKEYS)@i ==> Ex #j. KU(es)@j & #j < #i"
+
+lemma key_deriv_hkeyc [reuse]:
+  "All es hs_hashc #i. KU(HKEYC)@i ==> Ex #j. KU(es)@j & #j < #i"
+
+lemma key_deriv_fs [reuse]:
+  "All ss fs_hash #i. KU(FS)@i ==> Ex #j. KU(ss)@j & #j < #i"
+!>)dnl
+dnl
+define(<!lemma_psk_basic!>,<!
+lemma psk_basic [use_induction, reuse]:
+  "All actor peer psk_id rs role #i #j. 
+    CommitPSK(actor, peer, role, <psk_id, rs>)@i & KU(rs)@j ==>
+      Ex ss es #a #b #r #s. 
+        CommitES(actor, peer, role, es)@a & CommitSS(actor, peer, role, ss)@b & #a < #i & #b < #i & 
+        KU(ss)@r & KU(es)@s & #r < #j & #s < #j"
+
+!>)dnl
+dnl
+define(<!lemma_forge_server_sig2!>,<!
+/*
+  The server signature either includes a legitimate DH exponent gb = 'g'^b
+  and fresh nonces or
+  the adversary knows the long-term key.
+*/
+lemma forge_sig [reuse]:
+  "All exts Y pkA ltkA nc pc ns ps ga gb es hs_hashs config_hash fin #i.
+     KU(senc{<exts, Y, pkA, sign{<h(h(<<<nc, pc, ga>, ns, ps, gb>, exts,Y,pkA>), config_hash), 'server_cert_verify'>}ltkA>, fin}HKEYS)@i ==>
+      ((Ex #j. KU(ltkA)@j & #j < #i) |
+       (Ex actor peer role b a Z config_hash2 #j. UseLtk(actor, ltkA)@j & DHChal(b, a, gb, ga, Z)@j &
+                         RunningNonces(actor, peer, role, <nc,ns>)@j & 
+                         RunningKC(actor, peer, role, <Y, config_hash2>)@j & #j < #i))"
+!>)dnl
+dnl
+define(<!lemma_forge_server_sig!>,<!
+/*
+  The server signature either includes a legitimate DH exponent gb = 'g'^b
+  and fresh nonces or
+  the adversary knows the long-term key.
+*/
+lemma forge_server_sig [reuse]:
+  "All exts Y pkA ltkA cert_req signature_messages hs_hashs es fin #i.
+     KU(senc{<exts, Y, cert_req, pkA, sign{<signature_messages, 'server_cert_verify'>}ltkA>, fin}HKEYS)@i ==>
+      ((Ex #j. KU(ltkA)@j & #j < #i) |
+       (Ex actor #j. SignData(actor, <signature_messages, 'server_cert_verify'>)@j & UseLtk(actor, ltkA)@j & #j < #i))"
+!>)dnl
+dnl
+define(<!lemma_forge_client_sig!>,<!
+lemma forge_client_sig1 [reuse]:
+  "All pkA ltkA signature_messages key #i.
+     KU(senc{<pkA, sign{<signature_messages, 'client_cert_verify'>}ltkA>}key)@i ==>
+      ((Ex #j. KU(ltkA)@j & #j < #i) |
+       (Ex actor #j. SignData(actor, <signature_messages, 'client_cert_verify'>)@j & UseLtk(actor, ltkA)@j & #j < #i))"
+
+lemma forge_client_sig2 [reuse]:
+  "All pkA ltkA signature_messages client_fin key #i.
+     KU(senc{<pkA, sign{<signature_messages, 'client_cert_verify'>}ltkA, client_fin>}key)@i ==>
+      ((Ex #j. KU(ltkA)@j & #j < #i) |
+       (Ex actor #j. SignData(actor, <signature_messages, 'client_cert_verify'>)@j & UseLtk(actor, ltkA)@j & #j < #i))"
+!>)dnl
+dnl
+define(<!lemma_forge_server_fin!>,<!
+/*
+  The server finished message either comes from an adversary with knowledge of
+  the static secret, or a legitimate server.
+
+  (Needs work)
+*/
+lemma forge_server_fin [reuse]:
+  "All s1 ss es server_fin_messages fs_hash hs_hashs #i.
+     KU(senc{s1,  hmac(FS, 'server_finished',server_fin_messages)}HKEYS)@i ==>
+      ((Ex #j. KU(ss)@j & #j < #i) |
+       (Ex es2 S C #j. RunningTranscript(S, C, 'server', <server_fin_messages>)@j & RunningSecrets(S, C, 'server', <ss, es2>)@j & #j < #i) )"
+!>)dnl
+dnl
+define(<!lemma_ku_keys!>,<!
+lemma ku_keyc [reuse]:
+  "All ss es session_hash #i. KU(KEYC)@i ==> Ex #r #s. KU(ss)@r & KU(es)@s"
+
+lemma ku_keys [reuse]:
+  "All ss es session_hash #i. KU(KEYS)@i ==> Ex #r #s. KU(ss)@r & KU(es)@s"
+
+lemma ku_edkeyc [reuse]:
+  "All ss hs_hashc #i. KU(EDKEYC)@i ==> Ex #r. KU(ss)@r"
+
+!>)dnl

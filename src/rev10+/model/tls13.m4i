@@ -1,0 +1,1448 @@
+dnl TLS 1.3 modelled after draft-ietf-tls-tls13-10
+dnl https://tools.ietf.org/html/draft-ietf-tls-tls13-10
+dnl (October 19, 2015; expires April 21, 2016) */
+dnl  
+dnl Author's notes:
+dnl  Coding convention: generally, uppercase (snake case) variables
+dnl  are DEFINEs from the header (i.e. macros which are pre-processed).
+dnl  Whereas lowercase (snake case) variables should be set in the rules, 
+dnl  as they are dynamically populated in the rules.
+dnl  
+dnl  Also, handshake messages of form ClientHello etc are all set in the header.
+dnl  
+dnl  Variabes which aren't set (e.g. Y as the public key of the server)
+dnl  means the rule will expect 'some' symbolic input.
+dnl  So instead of forcing Y=pk(~ltkS), it can be any symbolic input.
+dnl 
+dnl  
+define(<!L!>,<!'256'!>)dnl
+dnl  Definitions of key derivations
+dnl  In each case, the local method should define hs_hash/session_hash
+dnl  and also ss and/or es
+define(<!xSS!>,<!HKDF('0',ss,'extractedSS',L)!>)dnl
+define(<!xES!>,<!HKDF('0',es,'extractedES',L)!>)dnl
+define(<!MS!>,<!HKDF(xSS,xES,'master_secret',L)!>)dnl
+define(<!FS!>,<!HKDFExpand(xSS, 'finished_secret', fs_hash,L)!>)dnl
+define(<!RS!>,<!HKDFExpand(MS, 'resumption_master_secret', session_hash,L)!>)dnl
+dnl 
+define(<!EDKEYC!>,<!HKDFExpand1(xSS,'early_data_key_expansion',hs_hashc,L)!>)dnl
+dnl 
+define(<!HKEYC!>,<!HKDFExpand1(xES, 'handshake_key_expansion', hs_hashc,L)!>)dnl
+define(<!HKEYS!>,<!HKDFExpand2(xES, 'handshake_key_expansion', hs_hashs,L)!>)dnl
+dnl 
+dnl Application keys should likely differ. 07 draft may "be revised" anyway.
+define(<!KEYC!>,<!HKDFExpand1(MS, 'application_data_key_expansion', session_hash,L)!>)dnl
+define(<!KEYS!>,<!HKDFExpand2(MS, 'application_data_key_expansion', session_hash,L)!>)dnl
+dnl 
+dnl Definition of C1 (client's handshake message)
+define(<!ClientHello!>,<!nc, pc!>)dnl
+define(<!ClientKeyShare!>,<!ga!>)dnl
+dnl 
+dnl Definition of S1_Retry
+define(<!HelloRetryRequest!>,<!ps!>)dnl
+dnl 
+dnl Definition of S1
+define(<!ServerHello!>,<!ns, ps!>)dnl
+define(<!ServerKeyShare!>,<!gb!>)dnl
+define(<!ServerFinished!>,<!server_fin!>) dnl hmac(FS, 'server_finished', hs_hash)dnl
+dnl 
+dnl Additional messages sent in S1
+define(<!ServerConfiguration!>,<!Y!>)dnl
+define(<!ServerEncryptedExtensions!>,<!$exts!>) dnl i.e. abstracted awaydnl
+define(<!ServerCertificate!>,<!pk(~ltkS)!>) dnl  Abstracted away as PKI infrastructure with !Pk facts given to clientdnl
+define(<!ServerCertificateVerify!>,<!s_signature!>)dnl
+define(<!CertificateRequest!>,<!$cert_req!>)dnl
+dnl 
+dnl Definition of C2 messages
+define(<!ClientCertificate!>,<!pk(~ltkC)!>)dnl
+define(<!ClientCertificateVerify!>,<!c_signature!>)dnl
+define(<!ClientFinished!>,<!client_fin!>) dnl hmac(FS, 'client_finished', hs_hash)dnl
+dnl 
+dnl  Common state usually in St_init
+define(<!INIT_STATE!>,<!tid, C, nc, pc, S, ns, ps!>)dnl
+dnl 
+dnl  Common actions which we log everywhere
+define(<!S_ACTIONS!>,<!Instance(tid, S, 'server')!>)dnl
+define(<!C_ACTIONS!>,<!Instance(tid, C, 'client')!>)dnl
+dnl 
+dnl  Message/handshake chunks which are digested for handshake_hash.
+define(<!C1_MSGS!>, <!ClientHello,ClientKeyShare!>)dnl
+define(<!S1_MSGS_1!>, <!ServerHello,ServerKeyShare!>)dnl
+define(<!S1_MSGS_2!>, <!ServerEncryptedExtensions,ServerConfiguration,CertificateRequest,ServerCertificate!>)dnl
+define(<!S1_MSGS_3!>, <!ServerCertificateVerify!>)dnl
+dnl 
+define(<!HS_HASH!>, <!h(h(messages))!>)dnl
+define(<!ED_HS_HASH!>, <!h(h(messages), h(config_hash))!>)dnl
+dnl
+builtins: diffie-hellman, hashing, symmetric-encryption, signing
+
+section{* TLS 1.3 *}
+
+/*
+ * Protocol:    TLS 1.3 Handshake and Record Protocols, Proposal A, rev. 10
+ * Modeler:     Cas Cremers, Marko Horvat, Sam Scott, Thyla van der Merwe
+ * Year:	      2015
+ * Source:      http://tlswg.github.io/tls13-spec/  
+ *
+ * Status:  in progress....
+ */
+
+// Hash declarations
+
+functions: HKDF/1, HKDFExpand/1, HKDFExpand1/1, HKDFExpand2/1, hmac/1, mac/1
+
+
+
+
+/* ------- Public key infrastructure -------*/
+
+/*
+  Register PK
+  ----------------
+  
+  Generates a long-term key for a party.
+
+  Premises:
+    Fr(~ltkA) - a fresh value for the key itself
+
+  Actions:
+    GenLtk($A, ~ltkA) - party $A has generated a long-term key
+
+  Conclusions:
+    !Ltk($A, ~ltkA) - binds the long-term key to the party $A
+    !Pk($A, pk(~ltkA)) - models the distribution of the public key by some PKI
+    Out(pk(~ltkA)) - outputs the public key so the adversary has knowledge
+*/
+rule Register_pk:
+  [ Fr(~ltkA) ]--[ GenLtk($A, ~ltkA)
+  ]->
+  [ !Ltk($A, ~ltkA), !Pk($A, pk(~ltkA)), Out(pk(~ltkA)) ]
+
+/*
+  Reveal Ltk
+  ----------------
+  
+  The adversarial capability to reveal long-term keys of parties.
+
+  Premises:
+    !Ltk($A, ~ltkA) - the long-term key to compromise
+
+  Actions:
+    RevLtk($A) - adversary has revealed the key of $A.
+
+  Conclusions:
+    Out(~ltkA) - provides the adversary with the long-term key
+*/
+rule Reveal_Ltk:
+  [ !Ltk($A, ~ltkA) ] --[ RevLtk($A) ]-> [ Out(~ltkA) ]
+
+// The other adversarial power is to reveal diffie-hellman exponents using
+// the Reveal_DHExp rule. Not currently used in this model.
+/*
+rule Reveal_DHExp:
+  [ DHExp($A,~x) ] --[ RevDHExp($A,~x) ]-> [ Out(~x) ] 
+*/
+
+
+
+
+
+/* ------- Semi-static DH Shares -------*/
+
+/*
+  Generate Server DH
+  ------------------
+  
+  Generates a semi-static DH share for a server.
+
+  The functionality of semi-static DH shares is explained
+  in the UseStaticDH rule.
+
+  Premises:
+    Fr(~y) - semi-static DH share
+
+  Actions:
+    GenServerDH(S, ~y)
+    DH(S, ~y)
+
+  Conclusions:
+    StoreServerDH(S, ~y)
+    DHExp(S, ~y)
+*/
+rule GenServerDH:
+let
+    S = $S
+in
+    [ Fr(~y)
+    ]
+  --[ GenServerDH(S, ~y)
+    , DH(S, ~y)
+    ]->
+    [ StoreServerDH(S, ~y)
+    , DHExp(S, ~y)
+    ]
+/*
+  UseStaticDH
+  ----------------
+  
+  Extracts a ServerDH fact from a stored DH share.
+
+  This allows a semi-static rule to behave like a persistant
+  fact, but still be expired (in the ExpireServerDH rule).
+
+  Variables:
+    S - The server $S
+
+  Premises:
+    StoreServerDH(S, ~y) - stored server DH.
+
+  Actions:
+    UseServerDH(S, ~y)
+
+  Conclusions:
+    StoreServerDH(S, ~y) - a copy of the input DH
+    ServerDH(S, ~y) - DH share which can be consumed by a server S1(_KC) rule.
+*/
+rule UseStaticDH:
+let
+    S = $S
+in
+    [ StoreServerDH(S, ~y)
+    ]
+  --[ UseServerDH(S, ~y)
+    ]->
+    [ StoreServerDH(S, ~y),
+      ServerDH(S, ~y)
+    ]
+
+/*
+  ExpireServerDH
+  ----------------
+  
+  Expires the server's semi-static DH share by finally consuming
+  the stored DH fact.
+  
+  Currently, expiring server DH shares does not have an impact, 
+  since the adversary is unable to reveal the share anyway.
+
+  Premises:
+    StoreServerDH(S, ~y) - the DH share to expire
+  Actions:
+    ExpireDH(S, ~y)
+
+*/
+rule ExpireServerDH:
+let
+    S = $S
+in
+    [ StoreServerDH(S, ~y)]--[ExpireDH(S, ~y)]->[]
+
+
+
+
+
+/* ------- Client Phase 1: ClientHello -------*/
+
+/*
+  C1
+  ----------------
+  
+  The rule which generates the initial client messages, and initialises the
+  client state.
+  
+  Variables:
+    ~nc - A fresh value for the client nonce
+    $pc - client's parameters/configuration. 
+          Mostly abstracted away and assumed to be public information.  
+    $C  - client identity
+    $S  - server identity
+    ga  - client DH share
+    messages - current handshake transcript
+    C1_MSGS - defined as the ClientHello + ClientKeyShare messages
+
+  Premises:
+    Fr(~nc)
+    Fr(~a)
+
+  Actions:
+    C1(tid)
+    Start(tid, $C, 'client') - a new thread has started for tid, with identity C and
+                               operating in the client role
+    Running(C, S, 'client', nc)
+    DH($C, ~a) - the value ~a has been generated as a DH exponent
+
+  Conclusions:
+    St_init(...) - client state
+    DHExp($C, ~a) - Diffie-Hellman exponent which can be compromised by the adversary
+    Out(...) - client's outgoing messages
+
+  Rule variants:
+    C_1_KC - ClientHello using semi-static DH share to do 0-RTT. (kc)
+    C_1_PSK - ClientHello using a Pre-Shared Key (psk)           (psk)
+
+*/
+rule C_1:
+let
+    // Default C1 values
+    tid = ~nc
+
+    // Client Hello
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+    S   = $S
+
+    // Client Key Share
+    ga   = 'g'^~a
+
+    messages = <C1_MSGS>
+
+in
+    [ Fr(nc)
+    , Fr(~a)
+    ]
+  --[ C1(tid)
+    , Start(tid, C, 'client')
+    , Running(C, S, 'client', nc)
+    , DH(C, ~a)
+    ]->
+    [ St_init(C,1, tid, C, nc, pc, S, ~a, messages, 'no_auth')
+    , DHExp(C, ~a)
+    , Out(<C,C1_MSGS>)
+    ]
+
+
+
+/* ------- Incorrect DH Share - HelloRetry -------*/
+
+/*
+    S1 Retry
+    ----------------
+    
+    Follows a C1 rule and models the server rejecting the provided parameters
+    and requesting new ones.
+
+    From the specifications: https://tools.ietf.org/html/draft-ietf-tls-tls13-10#section-6.2.1
+    
+    Variables:
+     'g'^a - the client key share, checked to be in the correct group
+      $ps  - The server's parameters/configuration. 
+             Mostly abstracted away and assumed to be public information.  
+
+    Premises:
+      In(<C1_MSGS>) - incoming client messages
+
+    Actions:
+      S1_Retry() - note there is no tid to attach this action to
+
+    Conclusions:
+      Out(...) - the outgoing server retry request messages
+
+*/
+rule S_1_retry:
+let
+
+    // Hello Retry Request
+    S  = $S
+    ps = $ps
+    C  = $C
+
+    // Client Hello
+    C = $C
+    nc = ~nc
+    pc = $pc
+    // S
+
+    // Client Key Share
+    ga = 'g'^a
+in
+    [ In(<C,C1_MSGS>)
+    ]
+  --[ S1_Retry()
+    ]->
+    [ Out(<S,HelloRetryRequest>)
+    ]
+
+/*
+    C1 Retry
+    ----------------
+    
+    Takes a C1 state fact as input, and responds to the S1 retry request.
+
+    Re-uses the original nonce, but sends a new key share.
+    (In reality, the new key share is in a different group)
+
+    The handshake transcript starts again.
+    
+    Variables:
+      ~a2 - the new DH exponent generated
+      prev_messages - previous transcript
+      messages - new handshake transcript
+
+    Premises:
+      St_init(...) - contains the state from the initial C1
+      In(...) - incoming server message
+      Fr(~a2)
+
+    Actions:
+      C1_Retry(tid)
+      Running(...)
+      C_ACTIONS - a macro for common actions used in all
+                  client rules. Currently just Instance(tid, C, 'client')
+                  which tracks a running instance of the client and
+                  is tied to the initial Start(...)
+      DH(C, ~a2)
+
+    Conclusions:
+      St_init(...)
+      DHExp(C, ~a2)
+      Out(...) - the outgoing client message, the same as C1
+
+*/
+rule C_1_retry:
+let
+    // Hello Retry Request
+    S = $S
+    ps = $ps
+    
+    // Default C1 values
+    tid = ~nc
+
+    // ClientHello
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+
+    // C1 using DHE (ClientKeyShare)
+    ga   = 'g'^~a2
+
+    messages = <C1_MSGS>
+in
+    [ St_init(C,1, tid, C, nc, pc, S, ~a, prev_messages, 'no_auth') 
+    , In(<S,HelloRetryRequest>)
+    , Fr(~a2)
+    ]
+  --[ C1_Retry(tid)
+    , Running(C, S, 'client', nc)
+    , C_ACTIONS
+    , DH(C, ~a2)
+    ]->
+    [ St_init(C,1, tid, C, nc, pc, S, ~a2, messages, 'no_auth')
+    , DHExp(C, ~a2)
+    , Out(<C,C1_MSGS>)
+    ]
+
+
+
+
+
+/* ------- Server phase 1a: Receive ClientHello + Send ServerHello -------*/
+/*
+  S1
+  ----------------
+  
+  The server receives the client hello messages and is
+  happy to proceed.
+
+  Server generates response, including signature and finished 
+  message, and also computes the static and ephemeral 
+  secrets.
+
+  Note that the server is modelled as always including the CertificateRequest 
+  message. The subsequent rules model optionally accepting client authentication.  
+
+  Variables:
+    ~tid, ~ns   - the server's nonce, tied to the thread id
+    ga = 'g'^a  - client DH share checked to be in the group
+    gb = 'g'^~b - server DH share
+    Y = 'g'^~y  - server semi-static DH share, as generated earlier
+    ss, es      - static and ephemeral secrets. Used in key derivation
+                  functions (defined in the header).
+    messages    - a variable used to accumulate the message transcript
+    hs_hashs    - handshake hash used for computing key for outgoing messages
+    s_signature_messages - messages to be signed by server
+    s_signature - server signature
+    fs_hash     - handshake hash for computing secret for HMAC of server Finished
+    config_hash - server configuration hashed for use in 0-RTT handshakes
+
+    C1_MGSS_1 - ClientHello, ClientKeyShare
+    S1_MSGS_1 - ServerHello, ServerKeyShare
+    S1_MSGS_2 - ServerEncryptedExtensions, ServerConfiguration, 
+                ServerCertificate, (ServerCertificateRequest)
+    S1_MSGS_3 - ServerCertificateVerify
+
+  Premises:
+    ServerDH(...) - server semi-static DH share
+    !Ltk(S, ~ltkS) - server long-term key for signing
+    Fr(~ns)
+    Fr(~b)
+    In(...) - client hello, key share messages
+
+  Actions:
+    S1(tid)
+    Start(tid, $S, 'server') - as for the client, used to track the start
+                of the thread, running as server for identity $S
+    
+    UseLtk(S, ~ltkS) - server used long-term key of S
+    SignData(S, s_signature_messages) - server computed signature over these messages
+    Running*(...) - logging of various important variables
+    Neq(a, 1) - models the server checking that the client key share is 
+                not g^1. Eliminates all traces where a = 1.
+    DH(S, ~b)
+    DHChal(~b, a, 'g'^~b, ga, ga^~b) - action to help resolve awkward DH
+                equations. Explained in detail in the README.
+
+  Conclusions:
+    St_init(S, 1a, ...) - server state moves to s_1a
+    ServerConfig(..) - stores the ServerConfig for use later. The config_hash
+                   is needed in the 0-RTT handshake.
+    DHExp(S, ~b)
+    Out(....)    - server outgoing messages
+
+  Rule variants:
+    S_1_KC - accepts 0-RTT handshake from client using semi-static DH share (kc)
+    S_1_KC_RecvAuth - 0-RTT handshake with client authentication            (mutual)
+    S_1_PSK - uses a previously established PSK                             (psk)
+    S_1_PSK_DHE -  PSK handshake with DHE exchange                          (psk)
+
+*/
+rule S_1:
+let
+    // Default S1 values
+    tid = ~ns
+
+    // Client Hello
+    C = $C
+    nc = ~nc
+    pc = $pc
+    // S
+    
+    // Client Key Share
+    // ga
+
+    ga = 'g'^a
+
+    // Server Hello
+    S  = $S
+    ns = ~ns
+    ps = $ps
+    // C
+
+    // Server Key Share (in DHE mode)
+    gb = 'g'^~b
+
+    // Server Configuration - (semi-)long term DH key
+    Y = 'g'^~y
+
+    // Server derives SS and ES
+    // Used in generating keys (see header)
+    ss = ga^~b
+    es = ga^~b
+
+    messages = <C1_MSGS>
+    messages = <messages,S1_MSGS_1>
+
+    // handshake_hash for outgoing messages
+    hs_hashs = HS_HASH
+
+    messages = <messages, S1_MSGS_2>
+    
+    // Server Certificate Verify
+    s_signature_messages = <messages, 'server_cert_verify'>
+    s_signature = sign{s_signature_messages}~ltkS
+
+    messages = <messages, S1_MSGS_3>
+
+
+    // Server Finished
+    fs_hash = HS_HASH
+    server_fin_messages = messages
+    server_fin = hmac(FS, 'server_finished', server_fin_messages) 
+
+    // Server needs to cache for later
+    config_hash = h(ServerConfiguration,CertificateRequest,ServerCertificate)
+in
+    [ ServerDH(S, ~y)
+    , !Ltk(S, ~ltkS)
+    , Fr(ns)
+    , Fr(~b)
+    , In(<C,C1_MSGS>)
+    ]
+  --[ S1(tid)
+    , Start(tid, S, 'server')
+    , UseLtk(S, ~ltkS)
+    , SignData(S, s_signature_messages)
+
+    , RunningNonces(S, C, 'server', <nc, ns>)
+    , RunningSecrets(S, C, 'server', <ss, es>)
+    , RunningTranscript(S, C, 'server', messages)
+    , RunningKC(S, C, 'server', <Y, config_hash>)
+
+    // Checks that the key share is not 'g'.
+    , Neq(a, 1)
+    , DH(S, ~b)
+    , DHChal(~b, a, 'g'^~b, ga, ga^~b)
+    ]->
+    [ St_init(S,1a, INIT_STATE, ss, es, messages, config_hash, 'no_auth')
+    , ServerConfig(S, ~y, config_hash)
+    , DHExp(S, ~b)
+    , Out(<S,S1_MSGS_1, senc{<S1_MSGS_2, S1_MSGS_3>,ServerFinished}HKEYS>)
+    ]
+
+
+
+
+/* ------- Server phase 1b: Update authentication state -------*/
+/*
+  S1 NoAuth
+  ----------------
+  
+  The server continues without accepting client authentication.
+
+  Recall that the server always *sends* the CertificateRequest, but
+  the server may not necessarily accept the authentication, which produces
+  equivalent traces.
+
+  Variables:
+    auth_status  - the current authentication status of the client
+
+  Premises:
+    St_init(...) - server in state s_1a
+
+  Actions:
+    S1_NoAuth(tid)
+    S_ACTIONS
+
+  Conclusions:
+    St_init(S, 1, ..., 'no_auth') - server moves to state s_1 and sets authentication
+                                    status to 'no_auth'
+
+  Rule variants:
+    S_1_AuthReq - will accept an authentication                    (tls13)
+    S_1_PSK_NoAuth - PSK handshake with no received auth           (psk)
+    S_1_PSK_Auth - PSK handshake with client already authenticated (mutual)
+
+*/
+rule S_1_NoAuth:
+let
+    // Default S1 State values
+    tid = ~ns
+    S   = $S
+    ns  = ~ns
+    ps  = $ps
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+    // ss
+    // es
+in
+    [ St_init(S,1a, INIT_STATE, ss, es, messages, config_hash, auth_status)
+    ]
+  --[ S1_NoAuth(tid)
+    , S_ACTIONS
+    ]->
+    [ St_init(S,1, INIT_STATE, ss, es, messages, config_hash, 'no_auth')
+    ]
+
+/*
+  S1 AuthReq
+  ----------------
+  
+  The server has requested authentication
+
+  Premises:
+    St_init(...) - server in state s_1a
+
+  Actions:
+    S1_AuthReq(tid)
+    S_ACTIONS
+
+  Conclusions:
+    St_init(S, 1, ..., 'auth_req') - server moves to state s_1 and sets authentication
+                                    status to requested
+
+  Rule variants:
+    S_1_NoAuth - will not accept an authentication                 (tls13)
+    S_1_PSK_NoAuth - PSK handshake with no authentication          (psk)
+    S_1_PSK_Auth - PSK handshake with client already authenticated (mutual)
+*/
+rule S_1_AuthReq:
+let
+    // Default S1 State values
+    tid = ~ns
+    S   = $S
+    ns  = ~ns
+    ps  = $ps
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+    // ss
+    // es
+in
+    [ St_init(S,1a, INIT_STATE, ss, es, messages, config_hash, 'no_auth')
+    ]
+  --[ S1_AuthReq(tid)
+    , S_ACTIONS
+    ]->
+    [ St_init(S,1, INIT_STATE, ss, es, messages, config_hash, 'auth_req')
+    ]
+
+
+
+
+
+/* ------- Client phase 2a: Process server messages -------*/
+/*
+  C2
+  ----------------
+  
+  Client receives server messages, and recomputes various
+  components.
+
+  Variables:
+    ~tid, ~nc
+    ga = 'g'^~a - client DH share
+    gb = 'g'^b  - server DH share checked to be in the group 
+    hs_hash[sc] - the handshake hash for the key derivation for incoming/outgoing messages
+    Y = 'g'^y   - server semi-static DH share, also checked to be 
+                  in the group
+    ss, es      - static and ephemeral secrets.
+    prev_messages - handshake transcript continued from previous state
+    messages    - current handshake transcript
+    s_signature_messages - the messages to verify in the server signature.
+    fs_hash     - handshake hash used for server finished secret
+    server_fin_messages - messages used in computing server Finished
+    expected_server_fin - expected value of server Finished
+    config_hash - hashed server configuration values for use in O-RTT handshake
+    auth_status  - the current authentication status of the client
+
+  Premises:
+    St_init(...) - client state from C1
+    !Pk(S, pk(~ltkS)) - abstraction of CA, client receives server public key
+    In(...)      - server messages
+
+  Actions:
+    C2(tid)
+    C_ACTIONS
+    
+    Running*(...) - logging of various important variables
+    Commit*(...)  - client has finished protocol and is committing to using
+                    certain values.
+
+    Eq(verify(...),...) -  client checks the server signature
+    Eq(ServerFinished, ...) - client checks the server Finished.
+
+    Neq(b, 1)     - models the client checking that the server key share is 
+                    not g^1. Eliminates all traces where b = 1.
+    Neq(y, 1)     - as above for semi-static key.
+    DHChal(~a, b, 'g'^~a, gb, gb^~a) - action to help resolve awkward DH
+                equations. Explained in detail in the README.
+
+  Conclusions:
+    St_init(C, 2a..) - client state moves to c_2a
+    KnownConfig(..) - stores the server configuration for a known config
+                      handshake
+
+  Rule variants:
+    C_2_KC - follows inital KC handshake                           (kc)
+    C_2_PSK - follows initial PSK handshake                        (psk)
+    C_2_PSK_DHE - follows initial PSK handshake, with DHE exchange (psk)
+*/
+rule C_2:
+  let
+    // Default C2 values
+    tid = ~nc
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+    
+    // C2 using DHE (Client Key Share)
+    ga   = 'g'^~a
+    
+
+    // Server Hello
+    S = $S
+    ns = ~ns
+    ps = $ps
+
+    // Server Key Share (in DHE mode)
+    gb = 'g'^b
+    
+    // Hash for incoming messages
+    messages = <prev_messages, S1_MSGS_1>
+    hs_hashs = HS_HASH
+    
+    // Server Configuration
+     Y = 'g'^y
+
+    messages = <messages, S1_MSGS_2>
+
+    // Server Certificate Verify
+    s_signature_messages = <messages, 'server_cert_verify'>
+
+    // This would be the implicit verification method
+    // s_signature = sign{signature_messages}~ltkS
+
+    // Generate ss and es for key derivation
+    ss = gb^~a
+    es = gb^~a
+
+    messages = <messages, S1_MSGS_3>
+
+
+    fs_hash = HS_HASH
+    server_fin_messages = messages
+    expected_server_fin = hmac(FS, 'server_finished', server_fin_messages) 
+
+    // Server Finished
+    // server_fin
+
+    // If client wants to use known config later
+    config_hash = h(ServerConfiguration,CertificateRequest,ServerCertificate)
+  in
+    [ St_init(C,1, tid, C, nc, pc, S, ~a, prev_messages, auth_status)
+    , !Pk(S, pk(~ltkS)) // This somehow abstracts the CA verifying the ServerCertificate
+    , In(<S,S1_MSGS_1,senc{<S1_MSGS_2,S1_MSGS_3>,ServerFinished}HKEYS>)
+    ]
+  --[ C2(tid)
+    , C_ACTIONS
+    , UsePK(S, pk(~ltkS))
+    
+    , RunningNonces(C, S, 'client', <nc, ns>)
+    , RunningSecrets(C, S, 'client', <ss, es>)
+    , CommitNonces(C, S, 'client', <nc, ns>)
+    , CommitSS(C, S, 'client', ss)
+    , CommitES(C, S, 'client', es)
+
+      // This gives us explicit verification of the certificates.
+    , Eq(verify(s_signature, s_signature_messages, pk(~ltkS)), true)
+      // Checks the ServerFinished message for correctness.
+    , Eq(ServerFinished, expected_server_fin)
+
+    , Neq(b, 1)
+    , Neq(y, 1)
+    , DHChal(~a, b, 'g'^~a, gb, gb^~a)
+    ]->
+    [ St_init(C,2a, INIT_STATE, ss, es, messages, config_hash, 'no_auth')
+    , KnownConfig(C, S, Y, config_hash)
+    ]
+
+
+
+
+/* ------- Client phase 2b: Client authentication + Finished -------*/
+/*
+  C2 NoAuth
+  ----------------
+  
+  Client does not send any authentication, and just sends Finished message.
+  This (or C_2_Auth) follows all initial handshake types.
+
+  TODO: Technically there are 3 possibilties:
+    - No authentication sent
+    - 'Null' authentication sent (empty certificate)
+    - Authentication sent
+
+  The second option is not currently covered.
+
+  Variables:
+    prev_messages - continuance of handshake transcripts
+    messages - current transcript
+    client_fin_messages - messages to be included in client Finished
+    fs_hash - handshake hash used in computation of finished secret
+    client_fin - client Finished message
+    session_hash - final value of handshake hash, used in deriving session
+                   keys
+    auth_status  - the current authentication status of the client
+
+    KEYC, KEYS - client (resp. server) session key computations as defined
+                 in header
+
+  Premises:
+    St_init(...) - client state
+    
+  Actions:
+    C2_NoAuth(tid)
+    C_ACTIONS
+    C_ACTIONS
+    Running*(...)
+    CommitTranscript(...) - commit to handshake transcript
+    SessionKey(...) - logs the session keys as computed
+
+  Conclusions:
+    St_init(C,2..) - client state moves to c_2
+    Out(...) - client outgoing messages (client Finished)
+
+  Rule variants:
+    C_2_Auth - client sends authentication with Finished messages (mutual)
+*/
+rule C_2_NoAuth:
+let
+    // Default C2 values
+    tid = ~nc
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+    S   = $S
+    ns  = ~ns
+    ps  = $ps
+
+    messages = prev_messages
+    hs_hashc = HS_HASH
+    client_fin_messages = messages
+
+    // Client Finished
+    fs_hash = HS_HASH
+    client_fin = hmac(FS, 'client_finished', client_fin_messages) 
+    
+    hs_messages = messages
+
+    session_hash = HS_HASH
+in
+    [ St_init(C,2a, INIT_STATE, ss, es, prev_messages, config_hash, auth_status)
+    ]
+  --[ C2_NoAuth(tid)
+    , C_ACTIONS
+    , RunningSecrets(C, S, 'client', <ss, es>)
+    , RunningTranscript(C, S, 'client', hs_messages)
+    , CommitTranscript(C, S, 'client', client_fin_messages)
+    , SessionKey(C, S, 'client', <KEYC, 'authenticated'>)
+    , SessionKey(C, S, 'client', <KEYS, 'authenticated'>)
+    ]->
+    [ St_init(C,2, INIT_STATE, ss, es, messages, config_hash, auth_status) 
+    , Out(<C,senc{ClientFinished}HKEYC>)
+    ]
+
+
+
+
+/* ------- Server phase 2: Receive ClientFinished -------*/
+/*
+  S2
+  ----------------
+  
+  Server receives client finished information. This rule can be reached
+  from all handshake types.
+
+  Variables:
+    prev_messages - previous hanshake transcript
+    messages     - current message transcript.
+    client_fin_messages - messages needed to recompute ClientFinished
+    session_hash - final value of handshake hash for use in session key derivation
+    auth_status  - the current authentication status of the client
+
+  Premises:
+    St_init(...) - server state from S1/S1_KC/S1_PSK/S1_PSK_DHE
+    In(...) - client messages - just the Finished message
+
+    KEYC, KEYS - client (resp. server) session key computations as defined
+                 in header
+
+  Actions:
+    S2(tid)
+    S_ACTIONS
+
+    SessionKey(...) - logs the session keys as computed, with an authentication status
+                      as defined in auth_status
+  
+    Eq(ClientFinished, ...) - server checks the client's Finished message against the
+                              expected value
+
+  Conclusions:
+    St_init(...) - server moves to state s_2
+
+  Rule variants:
+    S_2_RecvAuth - server receives client authentication along with Finished message (mutual)
+*/
+rule S_2:
+let
+
+    // Default S2 State values
+    tid = ~ns
+    S   = $S
+    ns  = ~ns
+    ps  = $ps
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+    // ss
+    // es
+    // session_hash
+
+    messages = prev_messages
+
+    // handshake has for incoming client message
+    hs_hashc = HS_HASH
+
+    client_fin_messages = messages
+    fs_hash = HS_HASH
+    expected_client_fin = hmac(FS, 'client_finished', client_fin_messages) 
+
+    session_hash = HS_HASH
+
+in
+    [ St_init(S,1, INIT_STATE, ss, es,prev_messages, config_hash, auth_status)
+    , In(<C,senc{ClientFinished}HKEYC>)
+    ]
+  --[ S2(tid)
+    , S_ACTIONS
+
+    , RunningTranscript(S, C, 'server', messages)
+    , RunningSecrets(S, C, 'server', <ss, es>)
+    , SessionKey(S, C, 'server', <KEYC, auth_status>)
+    , SessionKey(S, C, 'server', <KEYS, auth_status>)
+    
+    , Eq(ClientFinished, expected_client_fin)
+    ]->
+    [ St_init(S,2, INIT_STATE, ss, es, messages, config_hash, auth_status)
+    ]
+
+
+
+/* ------- Post-handshake rules -------*/
+/*
+  S3
+  ----------------
+ 
+  A simple pass-through rule. The server does not send a 
+  session ticket.
+
+  Premises:
+    St_init(...) - server state
+  
+  Actions:
+    S3(tid)
+    S_ACTIONS
+    FinishedHandshake(...) - server has finished hanshake
+  
+  Conclusions:
+    St_loop(...) - the server enters a looping state
+                   from which data can be sent and received.
+
+  Rule variants:
+    S_3_NST - server instead opts to send session ticket (tls13)
+
+*/
+rule S_3:
+let
+    // Default S3 State values
+    tid = ~ns
+    S   = $S
+    ns  = ~ns
+    ps  = $ps
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+    // ss
+    // es
+    // session_hash
+
+in
+    [ St_init(S,2, INIT_STATE, ss, es, messages, config_hash, auth_status)]
+  --[ S3(tid)
+    , S_ACTIONS
+    , FinishedHandshake(tid, S, 'server')
+    ]->
+    [ St_loop(S, INIT_STATE, ss, es, messages, auth_status)
+    ]
+
+/*
+  C3
+  ----------------
+ 
+  A simple pass-through rule. The client does not receive a
+  session ticket.
+
+  Variables:
+  
+  Premises:
+    St_init(...) - client state
+  
+  Actions:
+    C3(tid)
+    C_ACTIONS
+    FinishedHandshake(...)
+  
+  Conclusions:
+    St_loop(...) - the client enters a looping state from which
+                   data can be sent/received.
+
+  Rule variants:
+    C_3_NST - client receives a session ticket from the server (tls13)
+
+*/
+rule C_3:
+let
+    // Default C3 State values
+    tid = ~nc
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+    S   = $S
+    ns  = ~ns
+    ps  = $ps
+    // ss
+    // es
+    // session_hash
+
+in
+    [ St_init(C,2, INIT_STATE, ss, es, messages, config_hash, auth_status)
+    ]
+  --[ C3(tid)
+    , C_ACTIONS
+    , FinishedHandshake(tid, C, 'client')
+    ]->
+    [ St_loop(C, INIT_STATE, ss, es, messages, auth_status)
+    ]
+
+
+/*
+  S3 NST
+  ----------------
+ 
+  A session ticket is generated, and resumption secrets
+  stored for future use.
+
+  Usage of the StoreServerPSK fact is outlined in the PSK rules file.
+
+  Variables:
+    ~psk_id - the pre-shared key identifier sent (encrypted) to the client
+    RS      - the resumption secret, as defined in the header
+    session_hash - used in computing the resumption secret
+  
+  Premises:
+    St_init(...) - server state from S2
+    Fr(~psk_id)
+
+  Actions:
+    S3_NST(tid)
+    S_ACTIONS
+    FinishedHandshake(...)
+    RunningPSK(...)
+    AuthStatus(...) - helps track client authentication status
+    SendData(tid, ~psk_id) - logs that data has been sent using the
+                    application data keys.
+  
+  Conclusions:
+    St_loop(...) - the server enters a looping state
+                   from which data can be sent multiple times.
+    StoreServerPSK(...) - the pre-shared key information needed to 
+                   start a PSK handshake at a later date.
+                   Tied to the server id $S, and the client $C.
+    Out(...)     - sends the psk_id to the client
+*/
+rule S_3_NST:
+let
+    // Default S3 State values
+    tid = ~ns
+    S   = $S
+    ns  = ~ns
+    ps  = $ps
+
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+    // ss
+    // es
+    session_hash = HS_HASH
+
+in
+    [ St_init(S,2, INIT_STATE, ss, es, messages, config_hash, auth_status)
+    , Fr(~psk_id)
+    ]
+  --[ S3_NST(tid)
+    , S_ACTIONS
+    , FinishedHandshake(tid, S, 'server')
+    , RunningPSK(S, C, 'server', <~psk_id, RS>)
+    , AuthStatus(S, C, 'server', auth_status)
+    , SendData(tid, ~psk_id)
+    ]->
+    [ St_loop(S, INIT_STATE, ss, es, messages, auth_status)
+    , StoreServerPSK(S, ~psk_id, C, RS, config_hash, auth_status)
+    , Out(<S,senc{~psk_id}KEYS>)
+    ]
+
+/*
+  C3 NST
+  ----------------
+  
+  The client receives the session ticket to be used for later handshakes.
+  
+  Both client and server independently compute the resumption secret.
+
+  Variables:
+    ~psk_id - the pre-shared key identity received (encrypted)
+              from the server.
+    RS      - the resumption secret, as defined in the header.
+  
+  Premises:
+    St_init(...) - server state from S2
+    Fr(~psk_id)
+
+  Actions:
+    S3_NST(tid)
+    S_ACTIONS
+    RunningPSK(...)
+    AuthStatus(...)
+    SendData(tid, ~psk_id) - logs that data has been sent using the
+                    application data keys.
+    RecvId(...) - distinguishes receiving psk_id to recieving data
+  
+  Conclusions:
+    St_loop(...) - the server enters a looping state
+                   from which data can be sent multiple times.
+    StoreClientPSK(...) - the pre-shared key information needed to 
+                   start a PSK handshake at a later date.
+                   Tied to the server id $S, and the client $C.
+*/
+rule C_3_NST:
+let
+    // Default C3 State values
+    tid = ~nc
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+
+    S   = $S
+    ns  = ~ns
+    ps  = $ps
+    // ss
+    // es
+    session_hash = HS_HASH
+
+in
+    [ St_init(C,2, INIT_STATE, ss, es, messages, config_hash, auth_status)
+    , In(<S,senc{~psk_id}KEYS>)
+    ]
+  --[ C3_NST(tid)
+    , C_ACTIONS
+    , FinishedHandshake(tid, C, 'client')
+    , RunningPSK(C, S, 'client', <~psk_id, RS>)
+    , AuthStatus(C, S, 'client', auth_status)
+    , RecvId(tid,~psk_id)
+    ]->
+    [ St_loop(C, INIT_STATE, ss, es, messages, auth_status)
+    , StoreClientPSK(C, ~psk_id, S, RS, config_hash, auth_status)
+    ]
+
+/*
+  C Send
+  ----------------
+  
+  Client sends data
+
+  Variables:
+    ~data - the data to be sent. Modelled as a fresh value.
+  
+  Premises:
+    St_loop(...) - looping client state
+    Fr(~data)
+
+  Actions:
+    C_Send(tid)
+    C_ACTIONS
+    SessionData(...) - tracks the session data currently used by the client
+    SendData(tid, ~data) - logs that data has been sent
+  
+  Conclusions:
+    St_loop(...) - client remains in the looping state.
+    Out(...)     - sends the encrypted data to the server.
+
+  TODO:
+    These post-handshake rules should only really need
+    to use the derived keys, not the full transcript.
+
+*/
+rule C_Send:
+let
+    // Default C State values
+    tid = ~nc
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+
+    S   = $S
+    ns  = ~ns
+    ps  = $ps
+    // ss
+    // es
+    session_hash = HS_HASH
+
+in
+    [ St_loop(C, INIT_STATE, ss, es, messages, auth_status)
+    , Fr(~data)
+    ]
+  --[ C_Send(tid)
+    , C_ACTIONS
+    , SessionData(tid, <C, S, 'client', ss, es, messages>)
+    , SendData(tid, ~data)
+    ]->
+    [ St_loop(C, INIT_STATE, ss, es, messages, auth_status)
+    , Out(<C,senc{~data}KEYC>)
+    ]
+
+/*
+  S Send
+  ----------------
+  
+  Server sends data
+
+  Variables:
+    ~data - the data to be sent. Modelled as a fresh value.
+  
+  Premises:
+    St_loop(...) - looping server state
+    Fr(~data)
+
+  Actions:
+    S_Send(tid)
+    S_ACTIONS
+    SessionData(...)
+    SendData(tid, ~data) - logs that data has been sent
+  
+  Conclusions:
+    St_loop(...) - server remains in the looping state.
+    Out(...)     - sends the encrypted data to the client.
+
+*/
+rule S_Send:
+let
+    // Default S State values
+    tid = ~ns
+    S   = $S
+    ns  = ~ns
+    ps  = $ps
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+
+    // ss
+    // es
+    session_hash = HS_HASH
+
+in
+    [ St_loop(S, INIT_STATE, ss, es, messages, auth_status)
+    , Fr(~data)
+    ]
+  --[ S_Send(tid)
+    , S_ACTIONS
+    , SessionData(tid, <S, C, 'server', ss, es, messages>)
+    , SendData(tid, ~data)
+    ]->
+    [ St_loop(S, INIT_STATE, ss, es, messages, auth_status)
+    , Out(<S,senc{~data}KEYS>)
+    ]
+
+/*
+  C Recv
+  ----------------
+  
+  Client receives data.
+
+  Note that data is currently implicitly integrity checked by
+  pattern matching.
+
+  Variables:
+   
+  Premises:
+    St_loop(...) - looping client state
+    In(...)      - received data
+
+  Actions:
+    C_Recv(tid)
+    C_ACTIONS
+    SessionData(...)
+    RecvData(tid, ~data) - logs that data has been received.
+  
+  Conclusions:
+    St_loop(...) - client remains in the looping state.
+
+*/
+rule C_Recv:
+let
+    // Default C State values
+    tid = ~nc
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+
+    S   = $S
+    ns  = ~ns
+    ps  = $ps
+    // ss
+    // es
+    session_hash = HS_HASH
+
+in
+    [ St_loop(C, INIT_STATE, ss, es, messages, auth_status)
+    , In(<S,senc{~data}KEYS>)
+    ]
+  --[ C_Recv(tid)
+    , C_ACTIONS
+    , SessionData(tid, <C, S, 'client', ss, es, messages>)
+    ,  RecvData(tid, ~data)
+    ]->
+    [ St_loop(C, INIT_STATE, ss, es, messages, auth_status)
+    ]
+
+/*
+  S_Recv
+  ----------------
+  
+  Server receives data.
+
+  Note that data is currently implicitly integrity checked by
+  pattern matching.
+
+  Variables:
+   
+  Premises:
+    St_loop(...) - looping server state
+    In(...)      - received data
+
+  Actions:
+    S_Recv(tid)
+    S_ACTIONS
+    SessionData(...)
+    RecvData(tid, ~data) - logs that data has been received.
+  
+  Conclusions:
+    St_loop(...) - server remains in the looping state.
+
+*/
+rule S_Recv:
+let
+    // Default S State values
+    tid = ~ns
+    S   = $S
+    ns  = ~ns
+    ps  = $ps
+
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+
+    // ss
+    // es
+    session_hash = HS_HASH
+
+in
+    [ St_loop(S, INIT_STATE, ss, es, messages, auth_status)
+    , In(<C,senc{~data}KEYC>)
+    ]
+  --[ S_Recv(tid)
+    , S_ACTIONS
+    , SessionData(tid, <S, C, 'server', ss, es, messages>)
+    , RecvData(tid, ~data)
+    ]->
+    [ St_loop(S, INIT_STATE, ss, es, messages, auth_status)
+    ]
+
+/*
+  Adds the rules for PSK and KC
+*/
+include(psk.m4i)
+include(kc.m4i)
+include(mutual.m4i)
+
+// vim: ft=spthy

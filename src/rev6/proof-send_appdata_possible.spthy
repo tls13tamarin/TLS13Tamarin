@@ -1,0 +1,2048 @@
+theory TLS_Handshake_send_appdata_possible begin
+
+// Function signature and definition of the equational theory E
+
+builtins: diffie-hellman
+functions: PRF/1, PRFfirst48/1, PRFfourth48/1, PRFsecond48/1,
+           PRFthird48/1, fst/1, h/1, mac/1, pair/2, pk/1, sdec/2, senc/2,
+           sign/2, snd/1, true/0, verify/3
+equations:
+    fst(<x.1, x.2>) = x.1,
+    sdec(senc(x.1, x.2), x.2) = x.1,
+    snd(<x.1, x.2>) = x.2,
+    verify(sign(x.1, x.2), x.1, pk(x.2)) = true
+
+// looping facts with injective instances: F_St_C_1_init/6
+
+section{* TLS 1.3 *}
+
+rule (modulo E) Register_pk:
+   [ Fr( ~ltkA ) ]
+  -->
+   [
+   !Ltk( $A, ~ltkA ), !Pk( $A, pk(~ltkA) ),
+   AuthenticMessage( pk(~ltkA) )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Reveal_Ltk:
+   [ !Ltk( $A, ~ltkA ) ]
+  --[ RevLtk( $A ) ]->
+   [ AuthenticMessage( ~ltkA ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Reveal_DHExp:
+   [ DHExp( ~tid, ~x ) ]
+  --[ RevDHExp( ~tid ) ]->
+   [ AuthenticMessage( ~x ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) C_1:
+   [ Fr( ~nc ), Fr( ~sid ), Fr( ~x ) ]
+  --[
+  Start( ~nc, 'client', 'init' ), DH( ~nc, ~x ),
+  InitSid( ~nc, ~sid ), GenNc( ~nc, ~nc ),
+  InitTid( ~nc, ~sid, 'client' )
+  ]->
+   [
+   AuthenticMessage( <$C, ~nc, ~sid, $pc, 'g'^~x> ), DHExp( ~nc, ~x ),
+   F_St_C_1_init( ~nc, $C, ~nc, ~sid, $pc, ~x )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) C_1_retry:
+   [
+   Fr( ~x2 ), AuthenticMessage( <S, ps> ),
+   F_St_C_1_init( ~tid, $C, ~nc, ~sid, $pc, ~x )
+   ]
+  --[
+  Start( ~tid, 'client', 'retry' ), DH( ~tid, ~x2 ), Nc( ~tid, ~nc ),
+  Retry( 'client' ), Tid( ~tid, ~sid, 'client' )
+  ]->
+   [
+   AuthenticMessage( <$C, ~nc, ~sid, $pc, 'g'^~x2> ),
+   DHExp( ~tid, ~x2 ), F_St_C_1_init( ~tid, $C, ~nc, ~sid, $pc, ~x2 )
+   ]
+
+  // loop breakers: [1,2]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) C_1_resume:
+   [
+   Fr( ~nc ), Fr( ~x ),
+   St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ncOld, ~ns,
+                XOld, Y, ivc, ivs, keyc, keys
+   )
+   ]
+  --[
+  Start( ~tid, 'client', 'resume' ), DH( ~tid, ~x ),
+  LoopPMS( ~tid, $C, $S, pms ), Tid( ~tid, ~sid, 'client' )
+  ]->
+   [
+   AuthenticMessage( <$C, ~nc, ~sid, $pc, 'g'^~x> ),
+   DHExp( ~tid, ~x ),
+   St_C_1_resume( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns,
+                  'g'^~x, Y
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) S_1:
+   [
+   AuthenticMessage( <$C, ~nc, ~sid, $pc, X> ), Fr( ~ns ), Fr( ~y ),
+   !Ltk( $S, ~ltkS )
+   ]
+  --[
+  Start( ~ns, 'server', 'init' ), Partner( ~ns, ~nc, $S, $C ),
+  DH( ~ns, ~y ),
+  RunningPMS( ~ns, ~nc, X^~y, $S, $C, ~sid, ~nc, $pc, ~ns, $ps ),
+  InitTid( ~ns, ~sid, 'server' )
+  ]->
+   [
+   AuthenticMessage( <$S, ~ns, ~sid, $ps, 'g'^~y, 
+                      senc(<$encext, $S, pk(~ltkS), $certreq, 
+                            sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                    ~ns, ~sid, $ps, 'g'^~y, $encext, $S, pk(~ltkS), $certreq>),
+                                 ~ltkS), 
+                            PRF(<
+                                 PRF(<X^~y, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, 'g'^~y>)>), 
+                                 'server_finished', 
+                                 h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, 'g'^~y, $encext, $S, 
+                                    pk(~ltkS), $certreq, 
+                                    sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                            ~ns, ~sid, $ps, 'g'^~y, $encext, $S, pk(~ltkS), $certreq
+                                           >),
+                                         ~ltkS)
+                                   >)
+                                >)
+                           >,
+                           PRFsecond48(<
+                                        PRF(<X^~y, 'handshake_master_secret', 
+                                             h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, 'g'^~y>)
+                                            >), 
+                                        'key_expansion', ~ns, ~nc>))
+                     >
+   ),
+   DHExp( ~ns, ~y ),
+   F_St_S_1_init( ~ns, $S, $C, ~sid, ~nc, $pc, ~ns, $ps, X^~y )
+   ]
+
+  // loop breaker: [0]
+  /*
+  rule (modulo AC) S_1:
+     [
+     AuthenticMessage( <$C, ~nc, ~sid, $pc, X> ), Fr( ~ns ), Fr( ~y ),
+     !Ltk( $S, ~ltkS )
+     ]
+    --[
+    Start( ~ns, 'server', 'init' ), Partner( ~ns, ~nc, $S, $C ),
+    DH( ~ns, ~y ),
+    RunningPMS( ~ns, ~nc, z, $S, $C, ~sid, ~nc, $pc, ~ns, $ps ),
+    InitTid( ~ns, ~sid, 'server' )
+    ]->
+     [
+     AuthenticMessage( <$S, ~ns, ~sid, $ps, 'g'^~y, 
+                        senc(<$encext, $S, pk(~ltkS), $certreq, 
+                              sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                      ~ns, ~sid, $ps, 'g'^~y, $encext, $S, pk(~ltkS), $certreq>),
+                                   ~ltkS), 
+                              PRF(<
+                                   PRF(<z, 'handshake_master_secret', 
+                                        h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, 'g'^~y>)>), 
+                                   'server_finished', 
+                                   h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, 'g'^~y, $encext, 
+                                      $S, pk(~ltkS), $certreq, 
+                                      sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, 
+                                              $S, ~ns, ~sid, $ps, 'g'^~y, $encext, $S, pk(~ltkS), 
+                                              $certreq>),
+                                           ~ltkS)
+                                     >)
+                                  >)
+                             >,
+                             PRFsecond48(<
+                                          PRF(<z, 'handshake_master_secret', 
+                                               h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, 'g'^~y
+                                                 >)
+                                              >), 
+                                          'key_expansion', ~ns, ~nc>))
+                       >
+     ),
+     DHExp( ~ns, ~y ),
+     F_St_S_1_init( ~ns, $S, $C, ~sid, ~nc, $pc, ~ns, $ps, z )
+     ]
+    variants (modulo AC)
+    1. ~y    = ~y.18
+       X     = X.19
+       z     = X.19^~y.18
+    
+    2. ~y    = ~y.21
+       X     = z.25^inv(~y.21)
+       z     = z.25
+    
+    3. ~y    = ~y.123
+       X     = x.233^x.234
+       z     = x.233^(~y.123*x.234)
+    
+    4. ~y    = ~y.124
+       X     = x.235^inv((~y.124*x.236))
+       z     = x.235^inv(x.236)
+    
+    5. ~y    = ~y.124
+       X     = x.235^(x.236*inv(~y.124))
+       z     = x.235^x.236
+    
+    6. ~y    = ~y.125
+       X     = x.236^(x.238*inv((~y.125*x.237)))
+       z     = x.236^(x.238*inv(x.237))
+    // loop breaker: [0]
+  */
+
+rule (modulo E) S_1_retry:
+   [ AuthenticMessage( <$C, ~nc, ~sid, $pc, X> ) ]
+  --[ Retry( 'server' ) ]->
+   [ AuthenticMessage( <$S, $ps> ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) S_1_resume:
+   [
+   AuthenticMessage( <$C, ~nc, ~sid, $pc, X> ), Fr( ~ns ),
+   St_S_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ncOld, nsOld,
+                XOld, Y, ivc, ivs, keyc, keys
+   )
+   ]
+  --[
+  Start( ~tid, 'server', 'resume' ), Tid( ~tid, ~sid, 'server' ),
+  Loop( ~tid, ~sid, 'server' )
+  ]->
+   [
+   AuthenticMessage( <$S, ~ns, ~sid, $ps, 
+                      senc(PRF(<
+                                PRF(<pms, 'handshake_master_secret', 
+                                     h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                'server_finished', h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)
+                               >),
+                           PRFsecond48(<
+                                        PRF(<pms, 'handshake_master_secret', 
+                                             h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                        'key_expansion', ~ns, ~nc>))
+                     >
+   ),
+   St_S_1_resume( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns, X,
+                  Y
+   )
+   ]
+
+  // loop breaker: [0]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) C_2:
+   [
+   AuthenticMessage( <$S, ~ns, ~sid, $ps, Y, 
+                      senc(<$encext, $S, pk(~ltkS), $certreq, 
+                            sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                    $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                 ~ltkS), 
+                            PRF(<
+                                 PRF(<Y^~x, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                 'server_finished', 
+                                 h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                    pk(~ltkS), $certreq, 
+                                    sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                            'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                            $certreq>),
+                                         ~ltkS)
+                                   >)
+                                >)
+                           >,
+                           PRFsecond48(<
+                                        PRF(<Y^~x, 'handshake_master_secret', 
+                                             h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)
+                                            >), 
+                                        'key_expansion', ~ns, ~nc>))
+                     >
+   ),
+   !Ltk( $S, ~ltkS ), !Ltk( $C, ~ltkC ),
+   F_St_C_1_init( ~tid, $C, ~nc, ~sid, $pc, ~x )
+   ]
+  --[
+  Running( ~tid, $S, $C,
+           <'server', 
+            PRF(<
+                 PRF(<Y^~x, 'handshake_master_secret', 
+                      h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                 'extended_master_secret', 
+                 h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                    pk(~ltkS), $certreq, 
+                    sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                            $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                         ~ltkS), 
+                    $C, pk(~ltkC), 
+                    sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                            $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                            sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                    $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                 ~ltkS), 
+                            PRF(<
+                                 PRF(<Y^~x, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                 'server_finished', 
+                                 h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                    pk(~ltkS), $certreq, 
+                                    sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                            'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                            $certreq>),
+                                         ~ltkS)
+                                   >)
+                                >), 
+                            $C, pk(~ltkC)>),
+                         ~ltkC)
+                   >)
+                >)
+           >
+  ),
+  SessionKey( ~tid, $C, $S, Y^~x,
+              PRFfirst48(<
+                          PRF(<
+                               PRF(<Y^~x, 'handshake_master_secret', 
+                                    h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                               'extended_master_secret', 
+                               h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                  pk(~ltkS), $certreq, 
+                                  sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                          $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                       ~ltkS), 
+                                  $C, pk(~ltkC), 
+                                  sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                          $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                          sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                                  'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                                  pk(~ltkS), $certreq>),
+                                               ~ltkS), 
+                                          PRF(<
+                                               PRF(<Y^~x, 'handshake_master_secret', 
+                                                    h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, 
+                                                       $ps, Y>)
+                                                   >), 
+                                               'server_finished', 
+                                               h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, 
+                                                  Y, $encext, $S, pk(~ltkS), $certreq, 
+                                                  sign(h(<'server_certificate_verify', $C, ~nc, 
+                                                          ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, 
+                                                          $encext, $S, pk(~ltkS), $certreq>),
+                                                       ~ltkS)
+                                                 >)
+                                              >), 
+                                          $C, pk(~ltkC)>),
+                                       ~ltkC)
+                                 >)
+                              >), 
+                          'key_expansion', ~ns, ~nc>)
+  ),
+  SessionKey( ~tid, $C, $S, Y^~x,
+              PRFsecond48(<
+                           PRF(<
+                                PRF(<Y^~x, 'handshake_master_secret', 
+                                     h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                'extended_master_secret', 
+                                h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                   pk(~ltkS), $certreq, 
+                                   sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                           $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq
+                                          >),
+                                        ~ltkS), 
+                                   $C, pk(~ltkC), 
+                                   sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                           $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                           sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                                   'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                                   pk(~ltkS), $certreq>),
+                                                ~ltkS), 
+                                           PRF(<
+                                                PRF(<Y^~x, 'handshake_master_secret', 
+                                                     h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, 
+                                                        $ps, Y>)
+                                                    >), 
+                                                'server_finished', 
+                                                h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, 
+                                                   Y, $encext, $S, pk(~ltkS), $certreq, 
+                                                   sign(h(<'server_certificate_verify', $C, ~nc, 
+                                                           ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, 
+                                                           Y, $encext, $S, pk(~ltkS), $certreq>),
+                                                        ~ltkS)
+                                                  >)
+                                               >), 
+                                           $C, pk(~ltkC)>),
+                                        ~ltkC)
+                                  >)
+                               >), 
+                           'key_expansion', ~ns, ~nc>)
+  ),
+  Finished( ~tid, 'client' ), Partner( ~tid, ~ns, $C, $S ),
+  PMS( ~tid, $C, $S, Y^~x ), SecretPMS( ~tid ),
+  Tid( ~tid, ~sid, 'client' ),
+  RunningPMS( ~tid, ~ns, Y^~x, $C, $S, ~sid, ~nc, $pc, ~ns, $ps ),
+  CommitPMS( ~tid, ~ns, Y^~x, $C, $S, ~sid, ~nc, $pc, ~ns, $ps )
+  ]->
+   [
+   AuthenticMessage( senc(<$C, pk(~ltkC), 
+                           sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                   $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                   sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                           $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq
+                                          >),
+                                        ~ltkS), 
+                                   PRF(<
+                                        PRF(<Y^~x, 'handshake_master_secret', 
+                                             h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)
+                                            >), 
+                                        'server_finished', 
+                                        h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, 
+                                           $encext, $S, pk(~ltkS), $certreq, 
+                                           sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                                   'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                                   pk(~ltkS), $certreq>),
+                                                ~ltkS)
+                                          >)
+                                       >), 
+                                   $C, pk(~ltkC)>),
+                                ~ltkC), 
+                           PRF(<
+                                PRF(<Y^~x, 'handshake_master_secret', 
+                                     h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                'client_finished', 
+                                h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                   pk(~ltkS), $certreq, 
+                                   sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                           $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq
+                                          >),
+                                        ~ltkS), 
+                                   PRF(<
+                                        PRF(<Y^~x, 'handshake_master_secret', 
+                                             h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)
+                                            >), 
+                                        'server_finished', 
+                                        h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, 
+                                           $encext, $S, pk(~ltkS), $certreq, 
+                                           sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                                   'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                                   pk(~ltkS), $certreq>),
+                                                ~ltkS)
+                                          >)
+                                       >), 
+                                   $C, pk(~ltkC), 
+                                   sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                           $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                           sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                                   'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                                   pk(~ltkS), $certreq>),
+                                                ~ltkS), 
+                                           PRF(<
+                                                PRF(<Y^~x, 'handshake_master_secret', 
+                                                     h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, 
+                                                        $ps, Y>)
+                                                    >), 
+                                                'server_finished', 
+                                                h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, 
+                                                   Y, $encext, $S, pk(~ltkS), $certreq, 
+                                                   sign(h(<'server_certificate_verify', $C, ~nc, 
+                                                           ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, 
+                                                           Y, $encext, $S, pk(~ltkS), $certreq>),
+                                                        ~ltkS)
+                                                  >)
+                                               >), 
+                                           $C, pk(~ltkC)>),
+                                        ~ltkC)
+                                  >)
+                               >)
+                          >,
+                          PRFfirst48(<
+                                      PRF(<Y^~x, 'handshake_master_secret', 
+                                           h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)
+                                          >), 
+                                      'key_expansion', ~ns, ~nc>))
+   ),
+   St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, Y^~x,
+                PRF(<
+                     PRF(<Y^~x, 'handshake_master_secret', 
+                          h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                     'resumption_premaster_secret', 
+                     h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                        pk(~ltkS), $certreq, 
+                        sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                             ~ltkS), 
+                        $C, pk(~ltkC), 
+                        sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                        $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                     ~ltkS), 
+                                PRF(<
+                                     PRF(<Y^~x, 'handshake_master_secret', 
+                                          h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                     'server_finished', 
+                                     h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                        $S, pk(~ltkS), $certreq, 
+                                        sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                                'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                                pk(~ltkS), $certreq>),
+                                             ~ltkS)
+                                       >)
+                                    >), 
+                                $C, pk(~ltkC)>),
+                             ~ltkC)
+                       >)
+                    >),
+                ~nc, ~ns, 'g'^~x, Y,
+                PRFthird48(<
+                            PRF(<
+                                 PRF(<Y^~x, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                 'extended_master_secret', 
+                                 h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                    pk(~ltkS), $certreq, 
+                                    sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                            'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                            $certreq>),
+                                         ~ltkS), 
+                                    $C, pk(~ltkC), 
+                                    sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                            'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                            $certreq, 
+                                            sign(h(<'server_certificate_verify', $C, ~nc, ~sid, 
+                                                    $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                                    $S, pk(~ltkS), $certreq>),
+                                                 ~ltkS), 
+                                            PRF(<
+                                                 PRF(<Y^~x, 'handshake_master_secret', 
+                                                      h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, 
+                                                         $ps, Y>)
+                                                     >), 
+                                                 'server_finished', 
+                                                 h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, 
+                                                    Y, $encext, $S, pk(~ltkS), $certreq, 
+                                                    sign(h(<'server_certificate_verify', $C, ~nc, 
+                                                            ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, 
+                                                            Y, $encext, $S, pk(~ltkS), $certreq>),
+                                                         ~ltkS)
+                                                   >)
+                                                >), 
+                                            $C, pk(~ltkC)>),
+                                         ~ltkC)
+                                   >)
+                                >), 
+                            'key_expansion', ~ns, ~nc>),
+                PRFfourth48(<
+                             PRF(<
+                                  PRF(<Y^~x, 'handshake_master_secret', 
+                                       h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                  'extended_master_secret', 
+                                  h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                     $S, pk(~ltkS), $certreq, 
+                                     sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                             'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                             $certreq>),
+                                          ~ltkS), 
+                                     $C, pk(~ltkC), 
+                                     sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                             'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                             $certreq, 
+                                             sign(h(<'server_certificate_verify', $C, ~nc, ~sid, 
+                                                     $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                                     $S, pk(~ltkS), $certreq>),
+                                                  ~ltkS), 
+                                             PRF(<
+                                                  PRF(<Y^~x, 'handshake_master_secret', 
+                                                       h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, 
+                                                          ~sid, $ps, Y>)
+                                                      >), 
+                                                  'server_finished', 
+                                                  h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, 
+                                                     $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                                     sign(h(<'server_certificate_verify', $C, ~nc, 
+                                                             ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, 
+                                                             Y, $encext, $S, pk(~ltkS), $certreq>),
+                                                          ~ltkS)
+                                                    >)
+                                                 >), 
+                                             $C, pk(~ltkC)>),
+                                          ~ltkC)
+                                    >)
+                                 >), 
+                             'key_expansion', ~ns, ~nc>),
+                PRFfirst48(<
+                            PRF(<
+                                 PRF(<Y^~x, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                 'extended_master_secret', 
+                                 h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                    pk(~ltkS), $certreq, 
+                                    sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                            'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                            $certreq>),
+                                         ~ltkS), 
+                                    $C, pk(~ltkC), 
+                                    sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                            'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                            $certreq, 
+                                            sign(h(<'server_certificate_verify', $C, ~nc, ~sid, 
+                                                    $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                                    $S, pk(~ltkS), $certreq>),
+                                                 ~ltkS), 
+                                            PRF(<
+                                                 PRF(<Y^~x, 'handshake_master_secret', 
+                                                      h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, 
+                                                         $ps, Y>)
+                                                     >), 
+                                                 'server_finished', 
+                                                 h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, 
+                                                    Y, $encext, $S, pk(~ltkS), $certreq, 
+                                                    sign(h(<'server_certificate_verify', $C, ~nc, 
+                                                            ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, 
+                                                            Y, $encext, $S, pk(~ltkS), $certreq>),
+                                                         ~ltkS)
+                                                   >)
+                                                >), 
+                                            $C, pk(~ltkC)>),
+                                         ~ltkC)
+                                   >)
+                                >), 
+                            'key_expansion', ~ns, ~nc>),
+                PRFsecond48(<
+                             PRF(<
+                                  PRF(<Y^~x, 'handshake_master_secret', 
+                                       h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                  'extended_master_secret', 
+                                  h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                     $S, pk(~ltkS), $certreq, 
+                                     sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                             'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                             $certreq>),
+                                          ~ltkS), 
+                                     $C, pk(~ltkC), 
+                                     sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                             'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                             $certreq, 
+                                             sign(h(<'server_certificate_verify', $C, ~nc, ~sid, 
+                                                     $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                                     $S, pk(~ltkS), $certreq>),
+                                                  ~ltkS), 
+                                             PRF(<
+                                                  PRF(<Y^~x, 'handshake_master_secret', 
+                                                       h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, 
+                                                          ~sid, $ps, Y>)
+                                                      >), 
+                                                  'server_finished', 
+                                                  h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, 
+                                                     $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                                     sign(h(<'server_certificate_verify', $C, ~nc, 
+                                                             ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, 
+                                                             Y, $encext, $S, pk(~ltkS), $certreq>),
+                                                          ~ltkS)
+                                                    >)
+                                                 >), 
+                                             $C, pk(~ltkC)>),
+                                          ~ltkC)
+                                    >)
+                                 >), 
+                             'key_expansion', ~ns, ~nc>)
+   )
+   ]
+
+  /*
+  rule (modulo AC) C_2:
+     [
+     AuthenticMessage( <$S, ~ns, ~sid, $ps, Y, 
+                        senc(<$encext, $S, pk(~ltkS), $certreq, 
+                              sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                      $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                   ~ltkS), 
+                              PRF(<
+                                   PRF(<z, 'handshake_master_secret', 
+                                        h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                   'server_finished', 
+                                   h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                      $S, pk(~ltkS), $certreq, 
+                                      sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                              'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                              pk(~ltkS), $certreq>),
+                                           ~ltkS)
+                                     >)
+                                  >)
+                             >,
+                             PRFsecond48(<
+                                          PRF(<z, 'handshake_master_secret', 
+                                               h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y
+                                                 >)
+                                              >), 
+                                          'key_expansion', ~ns, ~nc>))
+                       >
+     ),
+     !Ltk( $S, ~ltkS ), !Ltk( $C, ~ltkC ),
+     F_St_C_1_init( ~tid, $C, ~nc, ~sid, $pc, ~x )
+     ]
+    --[
+    Running( ~tid, $S, $C,
+             <'server', 
+              PRF(<
+                   PRF(<z, 'handshake_master_secret', 
+                        h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                   'extended_master_secret', 
+                   h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                      pk(~ltkS), $certreq, 
+                      sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                              $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                           ~ltkS), 
+                      $C, pk(~ltkC), 
+                      sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                              $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                              sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                      $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                   ~ltkS), 
+                              PRF(<
+                                   PRF(<z, 'handshake_master_secret', 
+                                        h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                   'server_finished', 
+                                   h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                      $S, pk(~ltkS), $certreq, 
+                                      sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                              'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                              pk(~ltkS), $certreq>),
+                                           ~ltkS)
+                                     >)
+                                  >), 
+                              $C, pk(~ltkC)>),
+                           ~ltkC)
+                     >)
+                  >)
+             >
+    ),
+    SessionKey( ~tid, $C, $S, z,
+                PRFfirst48(<
+                            PRF(<
+                                 PRF(<z, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                 'extended_master_secret', 
+                                 h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                    pk(~ltkS), $certreq, 
+                                    sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                            'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                            $certreq>),
+                                         ~ltkS), 
+                                    $C, pk(~ltkC), 
+                                    sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                            'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                            $certreq, 
+                                            sign(h(<'server_certificate_verify', $C, ~nc, ~sid, 
+                                                    $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                                    $S, pk(~ltkS), $certreq>),
+                                                 ~ltkS), 
+                                            PRF(<
+                                                 PRF(<z, 'handshake_master_secret', 
+                                                      h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, 
+                                                         $ps, Y>)
+                                                     >), 
+                                                 'server_finished', 
+                                                 h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, 
+                                                    Y, $encext, $S, pk(~ltkS), $certreq, 
+                                                    sign(h(<'server_certificate_verify', $C, ~nc, 
+                                                            ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, 
+                                                            Y, $encext, $S, pk(~ltkS), $certreq>),
+                                                         ~ltkS)
+                                                   >)
+                                                >), 
+                                            $C, pk(~ltkC)>),
+                                         ~ltkC)
+                                   >)
+                                >), 
+                            'key_expansion', ~ns, ~nc>)
+    ),
+    SessionKey( ~tid, $C, $S, z,
+                PRFsecond48(<
+                             PRF(<
+                                  PRF(<z, 'handshake_master_secret', 
+                                       h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                  'extended_master_secret', 
+                                  h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                     $S, pk(~ltkS), $certreq, 
+                                     sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                             'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                             $certreq>),
+                                          ~ltkS), 
+                                     $C, pk(~ltkC), 
+                                     sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                             'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                             $certreq, 
+                                             sign(h(<'server_certificate_verify', $C, ~nc, ~sid, 
+                                                     $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                                     $S, pk(~ltkS), $certreq>),
+                                                  ~ltkS), 
+                                             PRF(<
+                                                  PRF(<z, 'handshake_master_secret', 
+                                                       h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, 
+                                                          ~sid, $ps, Y>)
+                                                      >), 
+                                                  'server_finished', 
+                                                  h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, 
+                                                     $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                                     sign(h(<'server_certificate_verify', $C, ~nc, 
+                                                             ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, 
+                                                             Y, $encext, $S, pk(~ltkS), $certreq>),
+                                                          ~ltkS)
+                                                    >)
+                                                 >), 
+                                             $C, pk(~ltkC)>),
+                                          ~ltkC)
+                                    >)
+                                 >), 
+                             'key_expansion', ~ns, ~nc>)
+    ),
+    Finished( ~tid, 'client' ), Partner( ~tid, ~ns, $C, $S ),
+    PMS( ~tid, $C, $S, z ), SecretPMS( ~tid ),
+    Tid( ~tid, ~sid, 'client' ),
+    RunningPMS( ~tid, ~ns, z, $C, $S, ~sid, ~nc, $pc, ~ns, $ps ),
+    CommitPMS( ~tid, ~ns, z, $C, $S, ~sid, ~nc, $pc, ~ns, $ps )
+    ]->
+     [
+     AuthenticMessage( senc(<$C, pk(~ltkC), 
+                             sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                     $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                     sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                             'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                             $certreq>),
+                                          ~ltkS), 
+                                     PRF(<
+                                          PRF(<z, 'handshake_master_secret', 
+                                               h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y
+                                                 >)
+                                              >), 
+                                          'server_finished', 
+                                          h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, 
+                                             $encext, $S, pk(~ltkS), $certreq, 
+                                             sign(h(<'server_certificate_verify', $C, ~nc, ~sid, 
+                                                     $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                                     $S, pk(~ltkS), $certreq>),
+                                                  ~ltkS)
+                                            >)
+                                         >), 
+                                     $C, pk(~ltkC)>),
+                                  ~ltkC), 
+                             PRF(<
+                                  PRF(<z, 'handshake_master_secret', 
+                                       h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                  'client_finished', 
+                                  h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                     $S, pk(~ltkS), $certreq, 
+                                     sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                             'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                             $certreq>),
+                                          ~ltkS), 
+                                     PRF(<
+                                          PRF(<z, 'handshake_master_secret', 
+                                               h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y
+                                                 >)
+                                              >), 
+                                          'server_finished', 
+                                          h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, 
+                                             $encext, $S, pk(~ltkS), $certreq, 
+                                             sign(h(<'server_certificate_verify', $C, ~nc, ~sid, 
+                                                     $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                                     $S, pk(~ltkS), $certreq>),
+                                                  ~ltkS)
+                                            >)
+                                         >), 
+                                     $C, pk(~ltkC), 
+                                     sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                             'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                             $certreq, 
+                                             sign(h(<'server_certificate_verify', $C, ~nc, ~sid, 
+                                                     $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                                     $S, pk(~ltkS), $certreq>),
+                                                  ~ltkS), 
+                                             PRF(<
+                                                  PRF(<z, 'handshake_master_secret', 
+                                                       h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, 
+                                                          ~sid, $ps, Y>)
+                                                      >), 
+                                                  'server_finished', 
+                                                  h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, 
+                                                     $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                                     sign(h(<'server_certificate_verify', $C, ~nc, 
+                                                             ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, 
+                                                             Y, $encext, $S, pk(~ltkS), $certreq>),
+                                                          ~ltkS)
+                                                    >)
+                                                 >), 
+                                             $C, pk(~ltkC)>),
+                                          ~ltkC)
+                                    >)
+                                 >)
+                            >,
+                            PRFfirst48(<
+                                        PRF(<z, 'handshake_master_secret', 
+                                             h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)
+                                            >), 
+                                        'key_expansion', ~ns, ~nc>))
+     ),
+     St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, z,
+                  PRF(<
+                       PRF(<z, 'handshake_master_secret', 
+                            h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                       'resumption_premaster_secret', 
+                       h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                          pk(~ltkS), $certreq, 
+                          sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                  $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                               ~ltkS), 
+                          $C, pk(~ltkC), 
+                          sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                  $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                  sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                          $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                       ~ltkS), 
+                                  PRF(<
+                                       PRF(<z, 'handshake_master_secret', 
+                                            h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)
+                                           >), 
+                                       'server_finished', 
+                                       h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, 
+                                          $encext, $S, pk(~ltkS), $certreq, 
+                                          sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                                  'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                                  pk(~ltkS), $certreq>),
+                                               ~ltkS)
+                                         >)
+                                      >), 
+                                  $C, pk(~ltkC)>),
+                               ~ltkC)
+                         >)
+                      >),
+                  ~nc, ~ns, 'g'^~x, Y,
+                  PRFthird48(<
+                              PRF(<
+                                   PRF(<z, 'handshake_master_secret', 
+                                        h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                   'extended_master_secret', 
+                                   h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                      $S, pk(~ltkS), $certreq, 
+                                      sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                              'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                              pk(~ltkS), $certreq>),
+                                           ~ltkS), 
+                                      $C, pk(~ltkC), 
+                                      sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                              'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                              pk(~ltkS), $certreq, 
+                                              sign(h(<'server_certificate_verify', $C, ~nc, ~sid, 
+                                                      $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                                      $S, pk(~ltkS), $certreq>),
+                                                   ~ltkS), 
+                                              PRF(<
+                                                   PRF(<z, 'handshake_master_secret', 
+                                                        h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, 
+                                                           ~sid, $ps, Y>)
+                                                       >), 
+                                                   'server_finished', 
+                                                   h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, 
+                                                      $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                                      sign(h(<'server_certificate_verify', $C, ~nc, 
+                                                              ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, 
+                                                              $ps, Y, $encext, $S, pk(~ltkS), 
+                                                              $certreq>),
+                                                           ~ltkS)
+                                                     >)
+                                                  >), 
+                                              $C, pk(~ltkC)>),
+                                           ~ltkC)
+                                     >)
+                                  >), 
+                              'key_expansion', ~ns, ~nc>),
+                  PRFfourth48(<
+                               PRF(<
+                                    PRF(<z, 'handshake_master_secret', 
+                                         h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                    'extended_master_secret', 
+                                    h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                       $S, pk(~ltkS), $certreq, 
+                                       sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                               'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                               pk(~ltkS), $certreq>),
+                                            ~ltkS), 
+                                       $C, pk(~ltkC), 
+                                       sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                               'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                               pk(~ltkS), $certreq, 
+                                               sign(h(<'server_certificate_verify', $C, ~nc, ~sid, 
+                                                       $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                                       $S, pk(~ltkS), $certreq>),
+                                                    ~ltkS), 
+                                               PRF(<
+                                                    PRF(<z, 'handshake_master_secret', 
+                                                         h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, 
+                                                            ~sid, $ps, Y>)
+                                                        >), 
+                                                    'server_finished', 
+                                                    h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, 
+                                                       $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                                       sign(h(<'server_certificate_verify', $C, 
+                                                               ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, 
+                                                               ~sid, $ps, Y, $encext, $S, 
+                                                               pk(~ltkS), $certreq>),
+                                                            ~ltkS)
+                                                      >)
+                                                   >), 
+                                               $C, pk(~ltkC)>),
+                                            ~ltkC)
+                                      >)
+                                   >), 
+                               'key_expansion', ~ns, ~nc>),
+                  PRFfirst48(<
+                              PRF(<
+                                   PRF(<z, 'handshake_master_secret', 
+                                        h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                   'extended_master_secret', 
+                                   h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                      $S, pk(~ltkS), $certreq, 
+                                      sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                              'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                              pk(~ltkS), $certreq>),
+                                           ~ltkS), 
+                                      $C, pk(~ltkC), 
+                                      sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                              'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                              pk(~ltkS), $certreq, 
+                                              sign(h(<'server_certificate_verify', $C, ~nc, ~sid, 
+                                                      $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                                      $S, pk(~ltkS), $certreq>),
+                                                   ~ltkS), 
+                                              PRF(<
+                                                   PRF(<z, 'handshake_master_secret', 
+                                                        h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, 
+                                                           ~sid, $ps, Y>)
+                                                       >), 
+                                                   'server_finished', 
+                                                   h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, 
+                                                      $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                                      sign(h(<'server_certificate_verify', $C, ~nc, 
+                                                              ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, 
+                                                              $ps, Y, $encext, $S, pk(~ltkS), 
+                                                              $certreq>),
+                                                           ~ltkS)
+                                                     >)
+                                                  >), 
+                                              $C, pk(~ltkC)>),
+                                           ~ltkC)
+                                     >)
+                                  >), 
+                              'key_expansion', ~ns, ~nc>),
+                  PRFsecond48(<
+                               PRF(<
+                                    PRF(<z, 'handshake_master_secret', 
+                                         h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                    'extended_master_secret', 
+                                    h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                       $S, pk(~ltkS), $certreq, 
+                                       sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                               'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                               pk(~ltkS), $certreq>),
+                                            ~ltkS), 
+                                       $C, pk(~ltkC), 
+                                       sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                               'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                               pk(~ltkS), $certreq, 
+                                               sign(h(<'server_certificate_verify', $C, ~nc, ~sid, 
+                                                       $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                                       $S, pk(~ltkS), $certreq>),
+                                                    ~ltkS), 
+                                               PRF(<
+                                                    PRF(<z, 'handshake_master_secret', 
+                                                         h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, 
+                                                            ~sid, $ps, Y>)
+                                                        >), 
+                                                    'server_finished', 
+                                                    h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, 
+                                                       $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                                       sign(h(<'server_certificate_verify', $C, 
+                                                               ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, 
+                                                               ~sid, $ps, Y, $encext, $S, 
+                                                               pk(~ltkS), $certreq>),
+                                                            ~ltkS)
+                                                      >)
+                                                   >), 
+                                               $C, pk(~ltkC)>),
+                                            ~ltkC)
+                                      >)
+                                   >), 
+                               'key_expansion', ~ns, ~nc>)
+     )
+     ]
+    variants (modulo AC)
+    1. ~x    = ~x.20
+       Y     = Y.21
+       z     = Y.21^~x.20
+    
+    2. ~x    = ~x.23
+       Y     = z.27^inv(~x.23)
+       z     = z.27
+    
+    3. ~x    = ~x.221
+       Y     = x.427^x.428
+       z     = x.427^(~x.221*x.428)
+    
+    4. ~x    = ~x.222
+       Y     = x.429^inv((~x.222*x.430))
+       z     = x.429^inv(x.430)
+    
+    5. ~x    = ~x.222
+       Y     = x.429^(x.430*inv(~x.222))
+       z     = x.429^x.430
+    
+    6. ~x    = ~x.223
+       Y     = x.430^(x.432*inv((~x.223*x.431)))
+       z     = x.430^(x.432*inv(x.431))
+  */
+
+rule (modulo E) C_2_resume:
+   [
+   AuthenticMessage( <$S, ~ns, ~sid, $ps, 
+                      senc(PRF(<
+                                PRF(<pms, 'handshake_master_secret', 
+                                     h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                'server_finished', h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)
+                               >),
+                           PRFsecond48(<
+                                        PRF(<pms, 'handshake_master_secret', 
+                                             h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                        'key_expansion', ~ns, ~nc>))
+                     >
+   ),
+   St_C_1_resume( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, nsOld,
+                  X, Y
+   )
+   ]
+  --[
+  SessionKey( ~tid, $C, $S, pms,
+              PRFfirst48(<
+                          PRF(<
+                               PRF(<pms, 'handshake_master_secret', 
+                                    h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                               'extended_master_secret', 
+                               h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                          'key_expansion', ~ns, ~nc>)
+  ),
+  SessionKey( ~tid, $C, $S, pms,
+              PRFsecond48(<
+                           PRF(<
+                                PRF(<pms, 'handshake_master_secret', 
+                                     h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                'extended_master_secret', 
+                                h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                           'key_expansion', ~ns, ~nc>)
+  ),
+  Loop( ~tid, ~sid, 'client' ), LoopPMS( ~tid, $C, $S, pms ),
+  Tid( ~tid, ~sid, 'client' )
+  ]->
+   [
+   AuthenticMessage( senc(PRF(<
+                               PRF(<pms, 'handshake_master_secret', 
+                                    h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                               'client_finished', 
+                               h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, 
+                                  PRF(<
+                                       PRF(<pms, 'handshake_master_secret', 
+                                            h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                       'server_finished', 
+                                       h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>)
+                                 >)
+                              >),
+                          PRFfirst48(<
+                                      PRF(<pms, 'handshake_master_secret', 
+                                           h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                      'key_expansion', ~ns, ~nc>))
+   ),
+   St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms,
+                PRF(<
+                     PRF(<pms, 'handshake_master_secret', 
+                          h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                     'resumption_premaster_secret', 
+                     h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>),
+                ~nc, ~ns, X, Y,
+                PRFthird48(<
+                            PRF(<
+                                 PRF(<pms, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                 'extended_master_secret', 
+                                 h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                            'key_expansion', ~ns, ~nc>),
+                PRFfourth48(<
+                             PRF(<
+                                  PRF(<pms, 'handshake_master_secret', 
+                                       h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                  'extended_master_secret', 
+                                  h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                             'key_expansion', ~ns, ~nc>),
+                PRFfirst48(<
+                            PRF(<
+                                 PRF(<pms, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                 'extended_master_secret', 
+                                 h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                            'key_expansion', ~ns, ~nc>),
+                PRFsecond48(<
+                             PRF(<
+                                  PRF(<pms, 'handshake_master_secret', 
+                                       h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                  'extended_master_secret', 
+                                  h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                             'key_expansion', ~ns, ~nc>)
+   )
+   ]
+
+  // loop breaker: [1]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) S_2:
+   [
+   AuthenticMessage( senc(<$C, pk(~ltkC), 
+                           sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                   ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                   sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                           ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                        ~ltkS), 
+                                   PRF(<
+                                        PRF(<pms, 'handshake_master_secret', 
+                                             h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                                        'server_finished', 
+                                        h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                           $S, pk(~ltkS), $certreq, 
+                                           sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                                   X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                                   pk(~ltkS), $certreq>),
+                                                ~ltkS)
+                                          >)
+                                       >), 
+                                   $C, pk(~ltkC)>),
+                                ~ltkC), 
+                           PRF(<
+                                PRF(<pms, 'handshake_master_secret', 
+                                     h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                                'client_finished', 
+                                h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                   pk(~ltkS), $certreq, 
+                                   sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                           ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                        ~ltkS), 
+                                   PRF(<
+                                        PRF(<pms, 'handshake_master_secret', 
+                                             h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                                        'server_finished', 
+                                        h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                           $S, pk(~ltkS), $certreq, 
+                                           sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                                   X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                                   pk(~ltkS), $certreq>),
+                                                ~ltkS)
+                                          >)
+                                       >), 
+                                   $C, pk(~ltkC), 
+                                   sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                           ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                           sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                                   X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                                   pk(~ltkS), $certreq>),
+                                                ~ltkS), 
+                                           PRF(<
+                                                PRF(<pms, 'handshake_master_secret', 
+                                                     h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y
+                                                       >)
+                                                    >), 
+                                                'server_finished', 
+                                                h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, 
+                                                   $encext, $S, pk(~ltkS), $certreq, 
+                                                   sign(h(<'server_certificate_verify', $C, ~nc, 
+                                                           ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, 
+                                                           $encext, $S, pk(~ltkS), $certreq>),
+                                                        ~ltkS)
+                                                  >)
+                                               >), 
+                                           $C, pk(~ltkC)>),
+                                        ~ltkC)
+                                  >)
+                               >)
+                          >,
+                          PRFfirst48(<
+                                      PRF(<pms, 'handshake_master_secret', 
+                                           h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                                      'key_expansion', ~ns, ~nc>))
+   ),
+   !Ltk( $C, ~ltkC ), !Ltk( $S, ~ltkS ),
+   F_St_S_1_init( ~tid, $S, $C, ~sid, ~nc, $pc, ~ns, $ps, pms )
+   ]
+  --[
+  Finished( ~tid, 'server' ), Tid( ~tid, ~sid, 'server' ),
+  PMS( ~tid, $S, $C, pms ), SecretPMS( ~tid ),
+  SessionKey( ~tid, $S, $C, pms,
+              PRFfirst48(<
+                          PRF(<
+                               PRF(<pms, 'handshake_master_secret', 
+                                    h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                               'extended_master_secret', 
+                               h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                  pk(~ltkS), $certreq, 
+                                  sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                          ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                       ~ltkS), 
+                                  $C, pk(~ltkC), 
+                                  sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                          ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                          sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                                  X, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                                  $certreq>),
+                                               ~ltkS), 
+                                          PRF(<
+                                               PRF(<pms, 'handshake_master_secret', 
+                                                    h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y
+                                                      >)
+                                                   >), 
+                                               'server_finished', 
+                                               h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, 
+                                                  $encext, $S, pk(~ltkS), $certreq, 
+                                                  sign(h(<'server_certificate_verify', $C, ~nc, 
+                                                          ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, 
+                                                          $encext, $S, pk(~ltkS), $certreq>),
+                                                       ~ltkS)
+                                                 >)
+                                              >), 
+                                          $C, pk(~ltkC)>),
+                                       ~ltkC)
+                                 >)
+                              >), 
+                          'key_expansion', ~ns, ~nc>)
+  ),
+  SessionKey( ~tid, $S, $C, pms,
+              PRFsecond48(<
+                           PRF(<
+                                PRF(<pms, 'handshake_master_secret', 
+                                     h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                                'extended_master_secret', 
+                                h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                   pk(~ltkS), $certreq, 
+                                   sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                           ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                        ~ltkS), 
+                                   $C, pk(~ltkC), 
+                                   sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                           ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                           sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                                   X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                                   pk(~ltkS), $certreq>),
+                                                ~ltkS), 
+                                           PRF(<
+                                                PRF(<pms, 'handshake_master_secret', 
+                                                     h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y
+                                                       >)
+                                                    >), 
+                                                'server_finished', 
+                                                h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, 
+                                                   $encext, $S, pk(~ltkS), $certreq, 
+                                                   sign(h(<'server_certificate_verify', $C, ~nc, 
+                                                           ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, 
+                                                           $encext, $S, pk(~ltkS), $certreq>),
+                                                        ~ltkS)
+                                                  >)
+                                               >), 
+                                           $C, pk(~ltkC)>),
+                                        ~ltkC)
+                                  >)
+                               >), 
+                           'key_expansion', ~ns, ~nc>)
+  ),
+  Commit( ~tid, $S, $C,
+          <'server', 
+           PRF(<
+                PRF(<pms, 'handshake_master_secret', 
+                     h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                'extended_master_secret', 
+                h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                   pk(~ltkS), $certreq, 
+                   sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                           ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                        ~ltkS), 
+                   $C, pk(~ltkC), 
+                   sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                           ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                           sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                   ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                ~ltkS), 
+                           PRF(<
+                                PRF(<pms, 'handshake_master_secret', 
+                                     h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                                'server_finished', 
+                                h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                   pk(~ltkS), $certreq, 
+                                   sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                           ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                        ~ltkS)
+                                  >)
+                               >), 
+                           $C, pk(~ltkC)>),
+                        ~ltkC)
+                  >)
+               >)
+          >
+  ),
+  CommitPMS( ~tid, ~nc, pms, $S, $C, ~sid, ~nc, $pc, ~ns, $ps )
+  ]->
+   [
+   St_S_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms,
+                PRF(<
+                     PRF(<pms, 'handshake_master_secret', 
+                          h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                     'resumption_premaster_secret', 
+                     h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                        pk(~ltkS), $certreq, 
+                        sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                             ~ltkS), 
+                        $C, pk(~ltkC), 
+                        sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                        ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                     ~ltkS), 
+                                PRF(<
+                                     PRF(<pms, 'handshake_master_secret', 
+                                          h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                                     'server_finished', 
+                                     h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                        pk(~ltkS), $certreq, 
+                                        sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, 
+                                                $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                                $certreq>),
+                                             ~ltkS)
+                                       >)
+                                    >), 
+                                $C, pk(~ltkC)>),
+                             ~ltkC)
+                       >)
+                    >),
+                ~nc, ~ns, X, Y,
+                PRFthird48(<
+                            PRF(<
+                                 PRF(<pms, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                                 'extended_master_secret', 
+                                 h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                    pk(~ltkS), $certreq, 
+                                    sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                            ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                         ~ltkS), 
+                                    $C, pk(~ltkC), 
+                                    sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                            ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                            sign(h(<'server_certificate_verify', $C, ~nc, ~sid, 
+                                                    $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                                    pk(~ltkS), $certreq>),
+                                                 ~ltkS), 
+                                            PRF(<
+                                                 PRF(<pms, 'handshake_master_secret', 
+                                                      h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, 
+                                                         Y>)
+                                                     >), 
+                                                 'server_finished', 
+                                                 h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, 
+                                                    $encext, $S, pk(~ltkS), $certreq, 
+                                                    sign(h(<'server_certificate_verify', $C, ~nc, 
+                                                            ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, 
+                                                            $encext, $S, pk(~ltkS), $certreq>),
+                                                         ~ltkS)
+                                                   >)
+                                                >), 
+                                            $C, pk(~ltkC)>),
+                                         ~ltkC)
+                                   >)
+                                >), 
+                            'key_expansion', ~ns, ~nc>),
+                PRFfourth48(<
+                             PRF(<
+                                  PRF(<pms, 'handshake_master_secret', 
+                                       h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                                  'extended_master_secret', 
+                                  h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                     pk(~ltkS), $certreq, 
+                                     sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, 
+                                             $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq
+                                            >),
+                                          ~ltkS), 
+                                     $C, pk(~ltkC), 
+                                     sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, X, 
+                                             $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                             $certreq, 
+                                             sign(h(<'server_certificate_verify', $C, ~nc, ~sid, 
+                                                     $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                                     pk(~ltkS), $certreq>),
+                                                  ~ltkS), 
+                                             PRF(<
+                                                  PRF(<pms, 'handshake_master_secret', 
+                                                       h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, 
+                                                          $ps, Y>)
+                                                      >), 
+                                                  'server_finished', 
+                                                  h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, 
+                                                     $encext, $S, pk(~ltkS), $certreq, 
+                                                     sign(h(<'server_certificate_verify', $C, ~nc, 
+                                                             ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, 
+                                                             $encext, $S, pk(~ltkS), $certreq>),
+                                                          ~ltkS)
+                                                    >)
+                                                 >), 
+                                             $C, pk(~ltkC)>),
+                                          ~ltkC)
+                                    >)
+                                 >), 
+                             'key_expansion', ~ns, ~nc>),
+                PRFfirst48(<
+                            PRF(<
+                                 PRF(<pms, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                                 'extended_master_secret', 
+                                 h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                    pk(~ltkS), $certreq, 
+                                    sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                            ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                         ~ltkS), 
+                                    $C, pk(~ltkC), 
+                                    sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                            ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq, 
+                                            sign(h(<'server_certificate_verify', $C, ~nc, ~sid, 
+                                                    $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                                    pk(~ltkS), $certreq>),
+                                                 ~ltkS), 
+                                            PRF(<
+                                                 PRF(<pms, 'handshake_master_secret', 
+                                                      h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, 
+                                                         Y>)
+                                                     >), 
+                                                 'server_finished', 
+                                                 h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, 
+                                                    $encext, $S, pk(~ltkS), $certreq, 
+                                                    sign(h(<'server_certificate_verify', $C, ~nc, 
+                                                            ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, 
+                                                            $encext, $S, pk(~ltkS), $certreq>),
+                                                         ~ltkS)
+                                                   >)
+                                                >), 
+                                            $C, pk(~ltkC)>),
+                                         ~ltkC)
+                                   >)
+                                >), 
+                            'key_expansion', ~ns, ~nc>),
+                PRFsecond48(<
+                             PRF(<
+                                  PRF(<pms, 'handshake_master_secret', 
+                                       h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                                  'extended_master_secret', 
+                                  h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                     pk(~ltkS), $certreq, 
+                                     sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, 
+                                             $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq
+                                            >),
+                                          ~ltkS), 
+                                     $C, pk(~ltkC), 
+                                     sign(h(<'client_certificate_verify', $C, ~nc, ~sid, $pc, X, 
+                                             $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                             $certreq, 
+                                             sign(h(<'server_certificate_verify', $C, ~nc, ~sid, 
+                                                     $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                                     pk(~ltkS), $certreq>),
+                                                  ~ltkS), 
+                                             PRF(<
+                                                  PRF(<pms, 'handshake_master_secret', 
+                                                       h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, 
+                                                          $ps, Y>)
+                                                      >), 
+                                                  'server_finished', 
+                                                  h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, 
+                                                     $encext, $S, pk(~ltkS), $certreq, 
+                                                     sign(h(<'server_certificate_verify', $C, ~nc, 
+                                                             ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, 
+                                                             $encext, $S, pk(~ltkS), $certreq>),
+                                                          ~ltkS)
+                                                    >)
+                                                 >), 
+                                             $C, pk(~ltkC)>),
+                                          ~ltkC)
+                                    >)
+                                 >), 
+                             'key_expansion', ~ns, ~nc>)
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) S_2_resume:
+   [
+   AuthenticMessage( senc(PRF(<
+                               PRF(<pms, 'handshake_master_secret', 
+                                    h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                               'client_finished', 
+                               h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, 
+                                  PRF(<
+                                       PRF(<pms, 'handshake_master_secret', 
+                                            h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                       'server_finished', 
+                                       h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>)
+                                 >)
+                              >),
+                          PRFfirst48(<
+                                      PRF(<pms, 'handshake_master_secret', 
+                                           h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                      'key_expansion', ~ns, ~nc>))
+   ),
+   St_S_1_resume( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns, X,
+                  Y
+   )
+   ]
+  --[
+  LoopPMS( ~tid, $S, $C, pms ), Tid( ~tid, ~sid, 'server' ),
+  Loop( ~tid, ~sid, 'server' ),
+  SessionKey( ~tid, $S, $C, pms,
+              PRFfirst48(<
+                          PRF(<
+                               PRF(<pms, 'handshake_master_secret', 
+                                    h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                               'extended_master_secret', 
+                               h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                          'key_expansion', ~ns, ~nc>)
+  ),
+  SessionKey( ~tid, $S, $C, pms,
+              PRFsecond48(<
+                           PRF(<
+                                PRF(<pms, 'handshake_master_secret', 
+                                     h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                'extended_master_secret', 
+                                h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                           'key_expansion', ~ns, ~nc>)
+  )
+  ]->
+   [
+   St_S_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms,
+                PRF(<
+                     PRF(<pms, 'handshake_master_secret', 
+                          h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                     'resumption_premaster_secret', 
+                     h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>),
+                ~nc, ~ns, X, Y,
+                PRFthird48(<
+                            PRF(<
+                                 PRF(<pms, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                 'extended_master_secret', 
+                                 h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                            'key_expansion', ~ns, ~nc>),
+                PRFfourth48(<
+                             PRF(<
+                                  PRF(<pms, 'handshake_master_secret', 
+                                       h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                  'extended_master_secret', 
+                                  h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                             'key_expansion', ~ns, ~nc>),
+                PRFfirst48(<
+                            PRF(<
+                                 PRF(<pms, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                 'extended_master_secret', 
+                                 h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                            'key_expansion', ~ns, ~nc>),
+                PRFsecond48(<
+                             PRF(<
+                                  PRF(<pms, 'handshake_master_secret', 
+                                       h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                  'extended_master_secret', 
+                                  h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                             'key_expansion', ~ns, ~nc>)
+   )
+   ]
+
+  // loop breakers: [0,1]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) C_send_appdata:
+   [
+   St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns, X,
+                Y, ivc, ivs, keyc, keys
+   ),
+   !Ltk( $S, ltkS ), Fr( ~nexpc ), Fr( ~plainc )
+   ]
+  --[
+  Send( ~tid, $C, $S, ~plainc, keyc ), Tid( ~tid, ~sid, 'client' ),
+  Loop( ~tid, ~sid, 'client' ), LoopPMS( ~tid, $C, $S, pms )
+  ]->
+   [
+   AuthenticMessage( <$paramsc, ~nexpc, senc(<~plainc, $padc>, keyc), 
+                      mac(<keyc, $paramsc, ivc, ~nexpc, senc(<~plainc, $padc>, keyc)>)>
+   ),
+   St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns, X,
+                Y, ivc, ivs, keyc, keys
+   )
+   ]
+
+  // loop breaker: [0]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) S_send_appdata:
+   [
+   St_S_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns, X,
+                Y, ivc, ivs, keyc, keys
+   ),
+   !Ltk( $S, ltkS ), Fr( ~nexps ), Fr( ~plains )
+   ]
+  --[
+  Send( ~tid, $S, $C, ~plains, keys ), Loop( ~tid, ~sid, 'server' ),
+  LoopPMS( ~tid, $S, $C, pms ), Tid( ~tid, ~sid, 'server' )
+  ]->
+   [
+   AuthenticMessage( <$paramss, ~nexps, senc(<~plains, $pads>, keys), 
+                      mac(<keys, $paramss, ivs, ~nexps, senc(<~plains, $pads>, keys)>)>
+   ),
+   St_S_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns, X,
+                Y, ivc, ivs, keyc, keys
+   )
+   ]
+
+  // loop breaker: [0]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) C_recv_appdata:
+   [
+   St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns, X,
+                Y, ivc, ivs, keyc, keys
+   ),
+   !Ltk( $S, ltkS ),
+   AuthenticMessage( <$paramss, ~nexps, senc(<~plains, $pads>, keys), 
+                      mac(<keys, $paramss, ivs, ~nexps, senc(<~plains, $pads>, keys)>)>
+   )
+   ]
+  --[
+  Recv( ~tid, $S, $C, ~plains, keys ), Tid( ~tid, ~sid, 'client' ),
+  Loop( ~tid, ~sid, 'client' ), LoopPMS( ~tid, $C, $S, pms )
+  ]->
+   [
+   St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns, X,
+                Y, ivc, ivs, keyc, keys
+   )
+   ]
+
+  // loop breaker: [0]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) S_recv_appdata:
+   [
+   St_S_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns, X,
+                Y, ivc, ivs, keyc, keys
+   ),
+   !Ltk( $S, ltkS ),
+   AuthenticMessage( <$paramsc, ~nexpc, senc(<~plainc, $padc>, keyc), 
+                      mac(<keyc, $paramsc, ivc, ~nexpc, senc(<~plainc, $padc>, keyc)>)>
+   )
+   ]
+  --[
+  Recv( ~tid, $C, $S, ~plainc, keyc ), Loop( ~tid, ~sid, 'server' ),
+  LoopPMS( ~tid, $S, $C, pms ), Tid( ~tid, ~sid, 'server' )
+  ]->
+   [
+   St_S_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns, X,
+                Y, ivc, ivs, keyc, keys
+   )
+   ]
+
+  // loop breaker: [0]
+  /* has exactly the trivial AC variant */
+
+axiom one_send_per_tid:
+  "∀ tid actor peer appdata key actor2 peer2 appdata2 key2 #r #s.
+    ((Send( tid, actor, peer, appdata, key ) @ #r) ∧
+     (Send( tid, actor2, peer2, appdata2, key2 ) @ #s)) ⇒
+    (#r = #s)"
+  // safety formula
+
+axiom one_recv_per_tid:
+  "∀ tid actor peer appdata key actor2 peer2 appdata2 key2 #r #s.
+    ((Recv( tid, actor, peer, appdata, key ) @ #r) ∧
+     (Recv( tid, actor2, peer2, appdata2, key2 ) @ #s)) ⇒
+    (#r = #s)"
+  // safety formula
+
+axiom one_resume_per_role:
+  "∀ tid tid2 role #r #s.
+    ((Start( tid, role, 'resume' ) @ #r) ∧
+     (Start( tid2, role, 'resume' ) @ #s)) ⇒
+    (#r = #s)"
+  // safety formula
+
+axiom one_retry_per_role:
+  "∀ tid tid2 role #r #s.
+    ((Start( tid, role, 'retry' ) @ #r) ∧
+     (Start( tid2, role, 'retry' ) @ #s)) ⇒
+    (#r = #s)"
+  // safety formula
+
+axiom one_instance_per_role:
+  "∀ tid tid2 role #r #s.
+    ((Start( tid, role, 'init' ) @ #r) ∧
+     (Start( tid2, role, 'init' ) @ #s)) ⇒
+    (#r = #s)"
+  // safety formula
+
+lemma send_appdata_possible:
+  exists-trace
+  "∃ tid tid2 actor peer appdata key #i #j #k #l #m.
+    ((((((((Retry( 'server' ) @ #i) ∧
+           (Start( tid2, 'client', 'retry' ) @ #j)) ∧
+          (Start( tid2, 'client', 'resume' ) @ #k)) ∧
+         (Send( tid2, actor, peer, appdata, key ) @ #l)) ∧
+        (Recv( tid, actor, peer, appdata, key ) @ #m)) ∧
+       (#i < #j)) ∧
+      (#j < #k)) ∧
+     (#k < #l)) ∧
+    (#l < #m)"
+/*
+guarded formula characterizing all satisfying traces:
+"∃ tid tid2 actor peer appdata key #i #j #k #l #m.
+  (Retry( 'server' ) @ #i) ∧
+  (Start( tid2, 'client', 'retry' ) @ #j) ∧
+  (Start( tid2, 'client', 'resume' ) @ #k) ∧
+  (Send( tid2, actor, peer, appdata, key ) @ #l) ∧
+  (Recv( tid, actor, peer, appdata, key ) @ #m)
+ ∧
+  (#i < #j) ∧ (#j < #k) ∧ (#k < #l) ∧ (#l < #m)"
+*/
+simplify
+solve( Send( tid2, actor, peer, appdata, key ) @ #l )
+  case C_send_appdata
+  solve( Recv( tid.1, $C, $S, ~plainc, key ) @ #m )
+    case C_recv_appdata
+    by sorry
+  next
+    case S_recv_appdata
+    solve( St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc,
+                        ~ns, X, Y, ivc, ivs, key, keys
+           ) ▶₀ #l )
+      case C_2_case_1
+      by sorry
+    next
+      case C_2_case_2
+      by sorry
+    next
+      case C_2_resume_case_1
+      by sorry
+    next
+      case C_2_resume_case_2
+      solve( !Ltk( $S.1, ltkS ) ▶₁ #l )
+        case Register_pk
+        solve( !Ltk( $S.1, ltkS ) ▶₁ #m )
+          case Register_pk
+          solve( AuthenticMessage( <$paramsc.1, ~nexpc.1, 
+                                    senc(<~plainc, $padc.1>,
+                                         PRFfirst48(<
+                                                     PRF(<
+                                                          PRF(<'g'^(~x*~y), 
+                                                               'handshake_master_secret', 
+                                                               h(<$C, ~nc.1, ~sid, $pc, X, $S.1, 
+                                                                  ~ns, ~sid, $ps.1>)
+                                                              >), 
+                                                          'extended_master_secret', 
+                                                          h(<$C, ~nc.1, ~sid, $pc, X, $S.1, ~ns, 
+                                                             ~sid, $ps.1>)
+                                                         >), 
+                                                     'key_expansion', ~ns, ~nc.1>)), 
+                                    mac(<
+                                         PRFfirst48(<
+                                                     PRF(<
+                                                          PRF(<'g'^(~x*~y), 
+                                                               'handshake_master_secret', 
+                                                               h(<$C, ~nc.1, ~sid, $pc, X, $S.1, 
+                                                                  ~ns, ~sid, $ps.1>)
+                                                              >), 
+                                                          'extended_master_secret', 
+                                                          h(<$C, ~nc.1, ~sid, $pc, X, $S.1, ~ns, 
+                                                             ~sid, $ps.1>)
+                                                         >), 
+                                                     'key_expansion', ~ns, ~nc.1>), 
+                                         $paramsc.1, ivc, ~nexpc.1, 
+                                         senc(<~plainc, $padc.1>,
+                                              PRFfirst48(<
+                                                          PRF(<
+                                                               PRF(<'g'^(~x*~y), 
+                                                                    'handshake_master_secret', 
+                                                                    h(<$C, ~nc.1, ~sid, $pc, X, 
+                                                                       $S.1, ~ns, ~sid, $ps.1>)
+                                                                   >), 
+                                                               'extended_master_secret', 
+                                                               h(<$C, ~nc.1, ~sid, $pc, X, $S.1, 
+                                                                  ~ns, ~sid, $ps.1>)
+                                                              >), 
+                                                          'key_expansion', ~ns, ~nc.1>))
+                                        >)
+                                   >
+                 ) ▶₂ #m )
+            case C_send_appdata
+            solve( Retry( 'server' ) @ #i )
+              case S_1_retry
+              solve( AuthenticMessage( <$C, ~nc, ~sid, $pc, X> ) ▶₀ #i )
+                case C_1
+                solve( Start( ~tid.1, 'client', 'retry' ) @ #j )
+                  case C_1_retry
+                  solve( Start( ~tid, 'client', 'resume' ) @ #k )
+                    case C_1_resume
+                    solve( St_C_0_loop( ~tid, $S.2, $C.2, ~sid.2, $ps.2, $pc.2, pms,
+                                        rms, ncOld, ~ns, XOld, Y, ivc, ivs, keyc, keys
+                           ) ▶₂ #k )
+                      case C_2
+                      solve( St_S_0_loop( ~tid.1, $S.2, $C.1, ~sid.2, $ps.3, $pc.2, pms,
+                                          rms, ~nc.4, ~ns.2, X.1, Y.1,
+                                          PRFthird48(<
+                                                      PRF(<
+                                                           PRF(<'g'^(~y*~x.1), 
+                                                                'handshake_master_secret', 
+                                                                h(<$C.1, ~nc.3, ~sid.1, $pc.1, X, 
+                                                                   $S.2, ~ns.1, ~sid.1, $ps.2>)
+                                                               >), 
+                                                           'extended_master_secret', 
+                                                           h(<$C.1, ~nc.3, ~sid.1, $pc.1, X, $S.2, 
+                                                              ~ns.1, ~sid.1, $ps.2>)
+                                                          >), 
+                                                      'key_expansion', ~ns.1, ~nc.3>),
+                                          ivs,
+                                          PRFfirst48(<
+                                                      PRF(<
+                                                           PRF(<'g'^(~y*~x.1), 
+                                                                'handshake_master_secret', 
+                                                                h(<$C.1, ~nc.3, ~sid.1, $pc.1, X, 
+                                                                   $S.2, ~ns.1, ~sid.1, $ps.2>)
+                                                               >), 
+                                                           'extended_master_secret', 
+                                                           h(<$C.1, ~nc.3, ~sid.1, $pc.1, X, $S.2, 
+                                                              ~ns.1, ~sid.1, $ps.2>)
+                                                          >), 
+                                                      'key_expansion', ~ns.1, ~nc.3>),
+                                          keys
+                             ) ▶₀ #m )
+                        case S_2_resume
+                        solve( St_C_1_resume( ~tid, $S.2, $C.1, ~sid.1, $ps.2, $pc.1,
+                                              'g'^(~y*~x.1), rms, ~nc.3, nsOld, X, Y
+                               ) ▶₁ #vr )
+                          case C_1_resume
+                          solve( AuthenticMessage( <$C.1, ~nc.2, ~sid.1, $pc.1, 'g'^~x.3>
+                                 ) ▶₀ #vr.1 )
+                            case C_1_resume
+                            solve( AuthenticMessage( <$C.1, ~nc.1, ~sid.1, $pc.1, 'g'^~x.1>
+                                   ) ▶₀ #vr.6 )
+                              case C_1_retry
+                              solve( AuthenticMessage( <S.1, ps.1> ) ▶₁ #j )
+                                case S_1_retry
+                                solve( F_St_C_1_init( ~tid, $C.1, ~nc.1, ~sid.1, $pc.1, ~x.2
+                                       ) ▶₂ #j )
+                                  case C_1
+                                  solve( AuthenticMessage( senc(PRF(<
+                                                                     PRF(<'g'^(~y*~x.1), 
+                                                                          'handshake_master_secret', 
+                                                                          h(<$C, ~nc.1, ~sid, $pc, 
+                                                                             'g'^~x.2, $S.1, ~ns.1, 
+                                                                             ~sid, $ps.1>)
+                                                                         >), 
+                                                                     'client_finished', 
+                                                                     h(<$C, ~nc.1, ~sid, $pc, 
+                                                                        'g'^~x.2, $S.1, ~ns.1, 
+                                                                        ~sid, $ps.1, 
+                                                                        PRF(<
+                                                                             PRF(<'g'^(~y*~x.1), 
+                                                                                  'handshake_master_secret', 
+                                                                                  h(<$C, ~nc.1, 
+                                                                                     ~sid, $pc, 
+                                                                                     'g'^~x.2, 
+                                                                                     $S.1, ~ns.1, 
+                                                                                     ~sid, $ps.1>)
+                                                                                 >), 
+                                                                             'server_finished', 
+                                                                             h(<$C, ~nc.1, ~sid, 
+                                                                                $pc, 'g'^~x.2, 
+                                                                                $S.1, ~ns.1, ~sid, 
+                                                                                $ps.1>)
+                                                                            >)
+                                                                       >)
+                                                                    >),
+                                                                PRFfirst48(<
+                                                                            PRF(<'g'^(~y*~x.1), 
+                                                                                 'handshake_master_secret', 
+                                                                                 h(<$C, ~nc.1, 
+                                                                                    ~sid, $pc, 
+                                                                                    'g'^~x.2, $S.1, 
+                                                                                    ~ns.1, ~sid, 
+                                                                                    $ps.1>)
+                                                                                >), 
+                                                                            'key_expansion', ~ns.1, 
+                                                                            ~nc.1>))
+                                         ) ▶₀ #vr.10 )
+                                    case C_2_resume
+                                    solve( St_S_1_resume( ~tid, $S.1, $C, ~sid, $ps.1, $pc,
+                                                          'g'^(~y*~x.1), rms, ~nc.1, ~ns.1,
+                                                          'g'^~x.2, Y
+                                           ) ▶₁ #vr.10 )
+                                      case S_1_resume
+                                      SOLVED // trace found
+                                    qed
+                                  qed
+                                qed
+                              qed
+                            qed
+                          qed
+                        qed
+                      qed
+                    qed
+                  qed
+                qed
+              qed
+            qed
+          qed
+        qed
+      qed
+    next
+      case C_2_resume_case_3
+      by sorry
+    next
+      case C_2_resume_case_4
+      by sorry
+    next
+      case C_2_resume_case_5
+      by sorry
+    next
+      case C_2_resume_case_6
+      by sorry
+    next
+      case C_recv_appdata_case_1
+      by sorry
+    next
+      case C_recv_appdata_case_2
+      by sorry
+    next
+      case C_send_appdata
+      by contradiction // cyclic
+    qed
+  qed
+next
+  case S_send_appdata
+  by sorry
+qed
+
+/* All well-formedness checks were successful. */
+
+end

@@ -1,0 +1,2166 @@
+theory TLS_Handshake_secret_sessionkeys begin
+
+// Function signature and definition of the equational theory E
+
+builtins: diffie-hellman
+functions: PRF/1, PRFfirst48/1, PRFfourth48/1, PRFsecond48/1,
+           PRFthird48/1, fst/1, h/1, mac/1, pair/2, pk/1, sdec/2, senc/2,
+           sign/2, snd/1, true/0, verify/3
+equations:
+    fst(<x.1, x.2>) = x.1,
+    sdec(senc(x.1, x.2), x.2) = x.1,
+    snd(<x.1, x.2>) = x.2,
+    verify(sign(x.1, x.2), x.1, pk(x.2)) = true
+
+// looping facts with injective instances: St_C_1_init/6
+
+section{* TLS 1.3 *}
+
+rule (modulo E) Register_pk:
+   [ Fr( ~ltkA ) ]
+  -->
+   [ !Ltk( $A, ~ltkA ), !Pk( $A, pk(~ltkA) ), Out( pk(~ltkA) ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Reveal_Ltk:
+   [ !Ltk( $A, ~ltkA ) ] --[ RevLtk( $A ) ]-> [ Out( ~ltkA ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Reveal_DHExp:
+   [ DHExp( ~tid, ~x ) ] --[ RevDHExp( ~tid ) ]-> [ Out( ~x ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) C_1:
+   [ Fr( ~nc ), Fr( ~sid ), Fr( ~x ) ]
+  --[
+  Start( ~nc, 'client', 'init' ), DH( ~nc, ~x ),
+  InitSid( ~nc, ~sid ), GenNc( ~nc, ~nc ),
+  InitTid( ~nc, ~sid, 'client' )
+  ]->
+   [
+   Out( <$C, ~nc, ~sid, $pc, 'g'^~x> ), DHExp( ~nc, ~x ),
+   St_C_1_init( ~nc, $C, ~nc, ~sid, $pc, ~x )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) C_1_retry:
+   [
+   Fr( ~x2 ), In( <S, ps> ),
+   St_C_1_init( ~tid, $C, ~nc, ~sid, $pc, ~x )
+   ]
+  --[
+  Start( ~tid, 'client', 'retry' ), DH( ~tid, ~x2 ), Nc( ~tid, ~nc ),
+  Retry( 'client' ), Tid( ~tid, ~sid, 'client' )
+  ]->
+   [
+   Out( <$C, ~nc, ~sid, $pc, 'g'^~x2> ), DHExp( ~tid, ~x2 ),
+   St_C_1_init( ~tid, $C, ~nc, ~sid, $pc, ~x2 )
+   ]
+
+  // loop breaker: [2]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) C_1_resume:
+   [
+   Fr( ~nc ), Fr( ~x ),
+   St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ncOld, ~ns,
+                XOld, Y, ivc, ivs, keyc, keys
+   )
+   ]
+  --[
+  Start( ~tid, 'client', 'resume' ), DH( ~tid, ~x ),
+  LoopPMS( ~tid, $C, $S, pms ), Tid( ~tid, ~sid, 'client' )
+  ]->
+   [
+   Out( <$C, ~nc, ~sid, $pc, 'g'^~x> ), DHExp( ~tid, ~x ),
+   St_C_1_resume( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns,
+                  'g'^~x, Y
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) S_1:
+   [
+   In( <$C, ~nc, ~sid, $pc, X> ), Fr( ~ns ), Fr( ~y ),
+   !Ltk( $S, ~ltkS )
+   ]
+  --[
+  Start( ~ns, 'server', 'init' ), Partner( ~ns, ~nc, $S, $C ),
+  DH( ~ns, ~y ),
+  RunningPMS( ~ns, ~nc, X^~y, $S, $C, ~sid, ~nc, $pc, ~ns, $ps ),
+  InitTid( ~ns, ~sid, 'server' )
+  ]->
+   [
+   Out( <$S, ~ns, ~sid, $ps, 'g'^~y, 
+         senc(<$encext, $S, pk(~ltkS), $certreq, 
+               sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                       ~ns, ~sid, $ps, 'g'^~y, $encext, $S, pk(~ltkS), $certreq>),
+                    ~ltkS), 
+               PRF(<
+                    PRF(<X^~y, 'handshake_master_secret', 
+                         h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, 'g'^~y>)>), 
+                    'server_finished', 
+                    h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, 'g'^~y, $encext, $S, 
+                       pk(~ltkS), $certreq, 
+                       sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                               ~ns, ~sid, $ps, 'g'^~y, $encext, $S, pk(~ltkS), $certreq>),
+                            ~ltkS)
+                      >)
+                   >)
+              >,
+              PRFsecond48(<
+                           PRF(<X^~y, 'handshake_master_secret', 
+                                h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, 'g'^~y>)>), 
+                           'key_expansion', ~ns, ~nc>))
+        >
+   ),
+   DHExp( ~ns, ~y ),
+   St_S_1_init( ~ns, $S, $C, ~sid, ~nc, $pc, ~ns, $ps, X^~y )
+   ]
+
+  /*
+  rule (modulo AC) S_1:
+     [
+     In( <$C, ~nc, ~sid, $pc, X> ), Fr( ~ns ), Fr( ~y ),
+     !Ltk( $S, ~ltkS )
+     ]
+    --[
+    Start( ~ns, 'server', 'init' ), Partner( ~ns, ~nc, $S, $C ),
+    DH( ~ns, ~y ),
+    RunningPMS( ~ns, ~nc, z, $S, $C, ~sid, ~nc, $pc, ~ns, $ps ),
+    InitTid( ~ns, ~sid, 'server' )
+    ]->
+     [
+     Out( <$S, ~ns, ~sid, $ps, 'g'^~y, 
+           senc(<$encext, $S, pk(~ltkS), $certreq, 
+                 sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                         ~ns, ~sid, $ps, 'g'^~y, $encext, $S, pk(~ltkS), $certreq>),
+                      ~ltkS), 
+                 PRF(<
+                      PRF(<z, 'handshake_master_secret', 
+                           h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, 'g'^~y>)>), 
+                      'server_finished', 
+                      h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, 'g'^~y, $encext, $S, 
+                         pk(~ltkS), $certreq, 
+                         sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                 ~ns, ~sid, $ps, 'g'^~y, $encext, $S, pk(~ltkS), $certreq>),
+                              ~ltkS)
+                        >)
+                     >)
+                >,
+                PRFsecond48(<
+                             PRF(<z, 'handshake_master_secret', 
+                                  h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, 'g'^~y>)>), 
+                             'key_expansion', ~ns, ~nc>))
+          >
+     ),
+     DHExp( ~ns, ~y ),
+     St_S_1_init( ~ns, $S, $C, ~sid, ~nc, $pc, ~ns, $ps, z )
+     ]
+    variants (modulo AC)
+    1. ~y    = ~y.18
+       X     = X.19
+       z     = X.19^~y.18
+    
+    2. ~y    = ~y.21
+       X     = z.25^inv(~y.21)
+       z     = z.25
+    
+    3. ~y    = ~y.123
+       X     = x.233^x.234
+       z     = x.233^(~y.123*x.234)
+    
+    4. ~y    = ~y.124
+       X     = x.235^inv((~y.124*x.236))
+       z     = x.235^inv(x.236)
+    
+    5. ~y    = ~y.124
+       X     = x.235^(x.236*inv(~y.124))
+       z     = x.235^x.236
+    
+    6. ~y    = ~y.125
+       X     = x.236^(x.238*inv((~y.125*x.237)))
+       z     = x.236^(x.238*inv(x.237))
+  */
+
+rule (modulo E) S_1_retry:
+   [ In( <$C, ~nc, ~sid, $pc, X> ) ]
+  --[ Retry( 'server' ) ]->
+   [ Out( <$S, $ps> ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) S_1_resume:
+   [
+   In( <$C, ~nc, ~sid, $pc, X> ), Fr( ~ns ),
+   St_S_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ncOld, nsOld,
+                XOld, Y, ivc, ivs, keyc, keys
+   )
+   ]
+  --[
+  Start( ~tid, 'server', 'resume' ), Tid( ~tid, ~sid, 'server' ),
+  Loop( ~tid, ~sid, 'server' )
+  ]->
+   [
+   Out( <$S, ~ns, ~sid, $ps, 
+         senc(PRF(<
+                   PRF(<pms, 'handshake_master_secret', 
+                        h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                   'server_finished', h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)
+                  >),
+              PRFsecond48(<
+                           PRF(<pms, 'handshake_master_secret', 
+                                h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                           'key_expansion', ~ns, ~nc>))
+        >
+   ),
+   St_S_1_resume( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns, X,
+                  Y
+   )
+   ]
+
+  // loop breaker: [2]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) C_2:
+   [
+   In( <$S, ~ns, ~sid, $ps, Y, 
+        senc(<$encext, $S, pk(~ltkS), $certreq, 
+              sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                      $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                   ~ltkS), 
+              PRF(<
+                   PRF(<Y^~x, 'handshake_master_secret', 
+                        h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                   'server_finished', 
+                   h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                      pk(~ltkS), $certreq, 
+                      sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                              $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                           ~ltkS)
+                     >)
+                  >)
+             >,
+             PRFsecond48(<
+                          PRF(<Y^~x, 'handshake_master_secret', 
+                               h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                          'key_expansion', ~ns, ~nc>))
+       >
+   ),
+   !Ltk( $S, ~ltkS ), St_C_1_init( ~tid, $C, ~nc, ~sid, $pc, ~x )
+   ]
+  --[
+  Running( ~tid, $S, $C,
+           <'server', 
+            PRF(<
+                 PRF(<Y^~x, 'handshake_master_secret', 
+                      h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                 'extended_master_secret', 
+                 h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                    pk(~ltkS), $certreq, 
+                    sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                            $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                         ~ltkS)
+                   >)
+                >)
+           >
+  ),
+  SessionKey( ~tid, $C, $S, Y^~x,
+              PRFfirst48(<
+                          PRF(<
+                               PRF(<Y^~x, 'handshake_master_secret', 
+                                    h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                               'extended_master_secret', 
+                               h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                  pk(~ltkS), $certreq, 
+                                  sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                          $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                       ~ltkS)
+                                 >)
+                              >), 
+                          'key_expansion', ~ns, ~nc>)
+  ),
+  SessionKey( ~tid, $C, $S, Y^~x,
+              PRFsecond48(<
+                           PRF(<
+                                PRF(<Y^~x, 'handshake_master_secret', 
+                                     h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                'extended_master_secret', 
+                                h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                   pk(~ltkS), $certreq, 
+                                   sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                           $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq
+                                          >),
+                                        ~ltkS)
+                                  >)
+                               >), 
+                           'key_expansion', ~ns, ~nc>)
+  ),
+  Finished( ~tid, 'client' ), Partner( ~tid, ~ns, $C, $S ),
+  PMS( ~tid, $C, $S, Y^~x ), SecretPMS( ~tid ),
+  Tid( ~tid, ~sid, 'client' ),
+  RunningPMS( ~tid, ~ns, Y^~x, $C, $S, ~sid, ~nc, $pc, ~ns, $ps ),
+  CommitPMS( ~tid, ~ns, Y^~x, $C, $S, ~sid, ~nc, $pc, ~ns, $ps )
+  ]->
+   [
+   Out( senc(PRF(<
+                  PRF(<Y^~x, 'handshake_master_secret', 
+                       h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                  'client_finished', 
+                  h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                     pk(~ltkS), $certreq, 
+                     sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                             $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                          ~ltkS), 
+                     PRF(<
+                          PRF(<Y^~x, 'handshake_master_secret', 
+                               h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                          'server_finished', 
+                          h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                             pk(~ltkS), $certreq, 
+                             sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                     $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                  ~ltkS)
+                            >)
+                         >)
+                    >)
+                 >),
+             PRFfirst48(<
+                         PRF(<Y^~x, 'handshake_master_secret', 
+                              h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                         'key_expansion', ~ns, ~nc>))
+   ),
+   St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, Y^~x,
+                PRF(<
+                     PRF(<Y^~x, 'handshake_master_secret', 
+                          h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                     'resumption_premaster_secret', 
+                     h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                        pk(~ltkS), $certreq, 
+                        sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                             ~ltkS)
+                       >)
+                    >),
+                ~nc, ~ns, 'g'^~x, Y,
+                PRFthird48(<
+                            PRF(<
+                                 PRF(<Y^~x, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                 'extended_master_secret', 
+                                 h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                    pk(~ltkS), $certreq, 
+                                    sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                            'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                            $certreq>),
+                                         ~ltkS)
+                                   >)
+                                >), 
+                            'key_expansion', ~ns, ~nc>),
+                PRFfourth48(<
+                             PRF(<
+                                  PRF(<Y^~x, 'handshake_master_secret', 
+                                       h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                  'extended_master_secret', 
+                                  h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                     $S, pk(~ltkS), $certreq, 
+                                     sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                             'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                             $certreq>),
+                                          ~ltkS)
+                                    >)
+                                 >), 
+                             'key_expansion', ~ns, ~nc>),
+                PRFfirst48(<
+                            PRF(<
+                                 PRF(<Y^~x, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                 'extended_master_secret', 
+                                 h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                    pk(~ltkS), $certreq, 
+                                    sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                            'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                            $certreq>),
+                                         ~ltkS)
+                                   >)
+                                >), 
+                            'key_expansion', ~ns, ~nc>),
+                PRFsecond48(<
+                             PRF(<
+                                  PRF(<Y^~x, 'handshake_master_secret', 
+                                       h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                  'extended_master_secret', 
+                                  h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                     $S, pk(~ltkS), $certreq, 
+                                     sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                             'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                             $certreq>),
+                                          ~ltkS)
+                                    >)
+                                 >), 
+                             'key_expansion', ~ns, ~nc>)
+   )
+   ]
+
+  /*
+  rule (modulo AC) C_2:
+     [
+     In( <$S, ~ns, ~sid, $ps, Y, 
+          senc(<$encext, $S, pk(~ltkS), $certreq, 
+                sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                        $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                     ~ltkS), 
+                PRF(<
+                     PRF(<z, 'handshake_master_secret', 
+                          h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                     'server_finished', 
+                     h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                        pk(~ltkS), $certreq, 
+                        sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                             ~ltkS)
+                       >)
+                    >)
+               >,
+               PRFsecond48(<
+                            PRF(<z, 'handshake_master_secret', 
+                                 h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                            'key_expansion', ~ns, ~nc>))
+         >
+     ),
+     !Ltk( $S, ~ltkS ), St_C_1_init( ~tid, $C, ~nc, ~sid, $pc, ~x )
+     ]
+    --[
+    Running( ~tid, $S, $C,
+             <'server', 
+              PRF(<
+                   PRF(<z, 'handshake_master_secret', 
+                        h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                   'extended_master_secret', 
+                   h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                      pk(~ltkS), $certreq, 
+                      sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                              $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                           ~ltkS)
+                     >)
+                  >)
+             >
+    ),
+    SessionKey( ~tid, $C, $S, z,
+                PRFfirst48(<
+                            PRF(<
+                                 PRF(<z, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                 'extended_master_secret', 
+                                 h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                    pk(~ltkS), $certreq, 
+                                    sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                            'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                            $certreq>),
+                                         ~ltkS)
+                                   >)
+                                >), 
+                            'key_expansion', ~ns, ~nc>)
+    ),
+    SessionKey( ~tid, $C, $S, z,
+                PRFsecond48(<
+                             PRF(<
+                                  PRF(<z, 'handshake_master_secret', 
+                                       h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                  'extended_master_secret', 
+                                  h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                     $S, pk(~ltkS), $certreq, 
+                                     sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                             'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                                             $certreq>),
+                                          ~ltkS)
+                                    >)
+                                 >), 
+                             'key_expansion', ~ns, ~nc>)
+    ),
+    Finished( ~tid, 'client' ), Partner( ~tid, ~ns, $C, $S ),
+    PMS( ~tid, $C, $S, z ), SecretPMS( ~tid ),
+    Tid( ~tid, ~sid, 'client' ),
+    RunningPMS( ~tid, ~ns, z, $C, $S, ~sid, ~nc, $pc, ~ns, $ps ),
+    CommitPMS( ~tid, ~ns, z, $C, $S, ~sid, ~nc, $pc, ~ns, $ps )
+    ]->
+     [
+     Out( senc(PRF(<
+                    PRF(<z, 'handshake_master_secret', 
+                         h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                    'client_finished', 
+                    h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                       pk(~ltkS), $certreq, 
+                       sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                               $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                            ~ltkS), 
+                       PRF(<
+                            PRF(<z, 'handshake_master_secret', 
+                                 h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                            'server_finished', 
+                            h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                               pk(~ltkS), $certreq, 
+                               sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                       $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                    ~ltkS)
+                              >)
+                           >)
+                      >)
+                   >),
+               PRFfirst48(<
+                           PRF(<z, 'handshake_master_secret', 
+                                h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                           'key_expansion', ~ns, ~nc>))
+     ),
+     St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, z,
+                  PRF(<
+                       PRF(<z, 'handshake_master_secret', 
+                            h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                       'resumption_premaster_secret', 
+                       h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                          pk(~ltkS), $certreq, 
+                          sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                  $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                               ~ltkS)
+                         >)
+                      >),
+                  ~nc, ~ns, 'g'^~x, Y,
+                  PRFthird48(<
+                              PRF(<
+                                   PRF(<z, 'handshake_master_secret', 
+                                        h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                   'extended_master_secret', 
+                                   h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                      $S, pk(~ltkS), $certreq, 
+                                      sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                              'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                              pk(~ltkS), $certreq>),
+                                           ~ltkS)
+                                     >)
+                                  >), 
+                              'key_expansion', ~ns, ~nc>),
+                  PRFfourth48(<
+                               PRF(<
+                                    PRF(<z, 'handshake_master_secret', 
+                                         h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                    'extended_master_secret', 
+                                    h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                       $S, pk(~ltkS), $certreq, 
+                                       sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                               'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                               pk(~ltkS), $certreq>),
+                                            ~ltkS)
+                                      >)
+                                   >), 
+                               'key_expansion', ~ns, ~nc>),
+                  PRFfirst48(<
+                              PRF(<
+                                   PRF(<z, 'handshake_master_secret', 
+                                        h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                   'extended_master_secret', 
+                                   h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                      $S, pk(~ltkS), $certreq, 
+                                      sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                              'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                              pk(~ltkS), $certreq>),
+                                           ~ltkS)
+                                     >)
+                                  >), 
+                              'key_expansion', ~ns, ~nc>),
+                  PRFsecond48(<
+                               PRF(<
+                                    PRF(<z, 'handshake_master_secret', 
+                                         h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                    'extended_master_secret', 
+                                    h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                       $S, pk(~ltkS), $certreq, 
+                                       sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                               'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                               pk(~ltkS), $certreq>),
+                                            ~ltkS)
+                                      >)
+                                   >), 
+                               'key_expansion', ~ns, ~nc>)
+     )
+     ]
+    variants (modulo AC)
+    1. ~x    = ~x.19
+       Y     = Y.20
+       z     = Y.20^~x.19
+    
+    2. ~x    = ~x.22
+       Y     = z.26^inv(~x.22)
+       z     = z.26
+    
+    3. ~x    = ~x.193
+       Y     = x.372^x.373
+       z     = x.372^(~x.193*x.373)
+    
+    4. ~x    = ~x.194
+       Y     = x.374^inv((~x.194*x.375))
+       z     = x.374^inv(x.375)
+    
+    5. ~x    = ~x.194
+       Y     = x.374^(x.375*inv(~x.194))
+       z     = x.374^x.375
+    
+    6. ~x    = ~x.195
+       Y     = x.375^(x.377*inv((~x.195*x.376)))
+       z     = x.375^(x.377*inv(x.376))
+  */
+
+rule (modulo E) C_2_resume:
+   [
+   In( <$S, ~ns, ~sid, $ps, 
+        senc(PRF(<
+                  PRF(<pms, 'handshake_master_secret', 
+                       h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                  'server_finished', h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)
+                 >),
+             PRFsecond48(<
+                          PRF(<pms, 'handshake_master_secret', 
+                               h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                          'key_expansion', ~ns, ~nc>))
+       >
+   ),
+   St_C_1_resume( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, nsOld,
+                  X, Y
+   )
+   ]
+  --[
+  SessionKey( ~tid, $C, $S, pms,
+              PRFfirst48(<
+                          PRF(<
+                               PRF(<pms, 'handshake_master_secret', 
+                                    h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                               'extended_master_secret', 
+                               h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                          'key_expansion', ~ns, ~nc>)
+  ),
+  SessionKey( ~tid, $C, $S, pms,
+              PRFsecond48(<
+                           PRF(<
+                                PRF(<pms, 'handshake_master_secret', 
+                                     h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                'extended_master_secret', 
+                                h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                           'key_expansion', ~ns, ~nc>)
+  ),
+  Loop( ~tid, ~sid, 'client' ), LoopPMS( ~tid, $C, $S, pms ),
+  Tid( ~tid, ~sid, 'client' )
+  ]->
+   [
+   Out( senc(PRF(<
+                  PRF(<pms, 'handshake_master_secret', 
+                       h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                  'client_finished', 
+                  h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, 
+                     PRF(<
+                          PRF(<pms, 'handshake_master_secret', 
+                               h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                          'server_finished', h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>)
+                    >)
+                 >),
+             PRFfirst48(<
+                         PRF(<pms, 'handshake_master_secret', 
+                              h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                         'key_expansion', ~ns, ~nc>))
+   ),
+   St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms,
+                PRF(<
+                     PRF(<pms, 'handshake_master_secret', 
+                          h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                     'resumption_premaster_secret', 
+                     h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>),
+                ~nc, ~ns, X, Y,
+                PRFthird48(<
+                            PRF(<
+                                 PRF(<pms, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                 'extended_master_secret', 
+                                 h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                            'key_expansion', ~ns, ~nc>),
+                PRFfourth48(<
+                             PRF(<
+                                  PRF(<pms, 'handshake_master_secret', 
+                                       h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                  'extended_master_secret', 
+                                  h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                             'key_expansion', ~ns, ~nc>),
+                PRFfirst48(<
+                            PRF(<
+                                 PRF(<pms, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                 'extended_master_secret', 
+                                 h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                            'key_expansion', ~ns, ~nc>),
+                PRFsecond48(<
+                             PRF(<
+                                  PRF(<pms, 'handshake_master_secret', 
+                                       h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                  'extended_master_secret', 
+                                  h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                             'key_expansion', ~ns, ~nc>)
+   )
+   ]
+
+  // loop breaker: [1]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) S_2:
+   [
+   In( senc(PRF(<
+                 PRF(<pms, 'handshake_master_secret', 
+                      h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                 'client_finished', 
+                 h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                    pk(~ltkS), $certreq, 
+                    sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                            ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                         ~ltkS), 
+                    PRF(<
+                         PRF(<pms, 'handshake_master_secret', 
+                              h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                         'server_finished', 
+                         h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                            pk(~ltkS), $certreq, 
+                            sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                    ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                 ~ltkS)
+                           >)
+                        >)
+                   >)
+                >),
+            PRFfirst48(<
+                        PRF(<pms, 'handshake_master_secret', 
+                             h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                        'key_expansion', ~ns, ~nc>))
+   ),
+   !Ltk( $S, ~ltkS ),
+   St_S_1_init( ~tid, $S, $C, ~sid, ~nc, $pc, ~ns, $ps, pms )
+   ]
+  --[
+  Finished( ~tid, 'server' ), Tid( ~tid, ~sid, 'server' ),
+  PMS( ~tid, $S, $C, pms )
+  ]->
+   [
+   St_S_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms,
+                PRF(<
+                     PRF(<pms, 'handshake_master_secret', 
+                          h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                     'resumption_premaster_secret', 
+                     h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                        pk(~ltkS), $certreq, 
+                        sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                             ~ltkS)
+                       >)
+                    >),
+                ~nc, ~ns, X, Y,
+                PRFthird48(<
+                            PRF(<
+                                 PRF(<pms, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                                 'extended_master_secret', 
+                                 h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                    pk(~ltkS), $certreq, 
+                                    sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                            ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                         ~ltkS)
+                                   >)
+                                >), 
+                            'key_expansion', ~ns, ~nc>),
+                PRFfourth48(<
+                             PRF(<
+                                  PRF(<pms, 'handshake_master_secret', 
+                                       h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                                  'extended_master_secret', 
+                                  h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                     pk(~ltkS), $certreq, 
+                                     sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, 
+                                             $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq
+                                            >),
+                                          ~ltkS)
+                                    >)
+                                 >), 
+                             'key_expansion', ~ns, ~nc>),
+                PRFfirst48(<
+                            PRF(<
+                                 PRF(<pms, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                                 'extended_master_secret', 
+                                 h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                    pk(~ltkS), $certreq, 
+                                    sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, $S, 
+                                            ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                         ~ltkS)
+                                   >)
+                                >), 
+                            'key_expansion', ~ns, ~nc>),
+                PRFsecond48(<
+                             PRF(<
+                                  PRF(<pms, 'handshake_master_secret', 
+                                       h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y>)>), 
+                                  'extended_master_secret', 
+                                  h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                     pk(~ltkS), $certreq, 
+                                     sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, X, 
+                                             $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq
+                                            >),
+                                          ~ltkS)
+                                    >)
+                                 >), 
+                             'key_expansion', ~ns, ~nc>)
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) S_2_resume:
+   [
+   In( senc(PRF(<
+                 PRF(<pms, 'handshake_master_secret', 
+                      h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                 'client_finished', 
+                 h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps, 
+                    PRF(<
+                         PRF(<pms, 'handshake_master_secret', 
+                              h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                         'server_finished', h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>)
+                   >)
+                >),
+            PRFfirst48(<
+                        PRF(<pms, 'handshake_master_secret', 
+                             h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                        'key_expansion', ~ns, ~nc>))
+   ),
+   St_S_1_resume( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns, X,
+                  Y
+   )
+   ]
+  --[
+  LoopPMS( ~tid, $S, $C, pms ), Tid( ~tid, ~sid, 'server' ),
+  Loop( ~tid, ~sid, 'server' )
+  ]->
+   [
+   St_S_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms,
+                PRF(<
+                     PRF(<pms, 'handshake_master_secret', 
+                          h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                     'resumption_premaster_secret', 
+                     h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>),
+                ~nc, ~ns, X, Y,
+                PRFthird48(<
+                            PRF(<
+                                 PRF(<pms, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                 'extended_master_secret', 
+                                 h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                            'key_expansion', ~ns, ~nc>),
+                PRFfourth48(<
+                             PRF(<
+                                  PRF(<pms, 'handshake_master_secret', 
+                                       h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                  'extended_master_secret', 
+                                  h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                             'key_expansion', ~ns, ~nc>),
+                PRFfirst48(<
+                            PRF(<
+                                 PRF(<pms, 'handshake_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                 'extended_master_secret', 
+                                 h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                            'key_expansion', ~ns, ~nc>),
+                PRFsecond48(<
+                             PRF(<
+                                  PRF(<pms, 'handshake_master_secret', 
+                                       h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                  'extended_master_secret', 
+                                  h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                             'key_expansion', ~ns, ~nc>)
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) C_send_appdata:
+   [
+   St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns, X,
+                Y, ivc, ivs, keyc, keys
+   ),
+   !Ltk( $S, ltkS ), Fr( ~nexpc ), Fr( ~plainc )
+   ]
+  --[
+  Send( ~tid, $C, $S, ~plainc, keyc ), Tid( ~tid, ~sid, 'client' ),
+  Loop( ~tid, ~sid, 'client' ), LoopPMS( ~tid, $C, $S, pms )
+  ]->
+   [
+   Out( <$paramsc, ~nexpc, senc(<~plainc, $padc>, keyc), 
+         mac(<keyc, $paramsc, ivc, ~nexpc, senc(<~plainc, $padc>, keyc)>)>
+   ),
+   St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns, X,
+                Y, ivc, ivs, keyc, keys
+   )
+   ]
+
+  // loop breaker: [0]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) S_send_appdata:
+   [
+   St_S_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns, X,
+                Y, ivc, ivs, keyc, keys
+   ),
+   !Ltk( $S, ltkS ), Fr( ~nexps ), Fr( ~plains )
+   ]
+  --[
+  Send( ~tid, $S, $C, ~plains, keys ), Loop( ~tid, ~sid, 'server' ),
+  LoopPMS( ~tid, $S, $C, pms ), Tid( ~tid, ~sid, 'server' )
+  ]->
+   [
+   Out( <$paramss, ~nexps, senc(<~plains, $pads>, keys), 
+         mac(<keys, $paramss, ivs, ~nexps, senc(<~plains, $pads>, keys)>)>
+   ),
+   St_S_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns, X,
+                Y, ivc, ivs, keyc, keys
+   )
+   ]
+
+  // loop breaker: [0]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) C_recv_appdata:
+   [
+   St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns, X,
+                Y, ivc, ivs, keyc, keys
+   ),
+   !Ltk( $S, ltkS ),
+   In( <$paramss, ~nexps, senc(<~plains, $pads>, keys), 
+        mac(<keys, $paramss, ivs, ~nexps, senc(<~plains, $pads>, keys)>)>
+   )
+   ]
+  --[
+  Recv( ~tid, $S, $C, ~plains, keys ), Tid( ~tid, ~sid, 'client' ),
+  Loop( ~tid, ~sid, 'client' ), LoopPMS( ~tid, $C, $S, pms )
+  ]->
+   [
+   St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns, X,
+                Y, ivc, ivs, keyc, keys
+   )
+   ]
+
+  // loop breaker: [0]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) S_recv_appdata:
+   [
+   St_S_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns, X,
+                Y, ivc, ivs, keyc, keys
+   ),
+   !Ltk( $S, ltkS ),
+   In( <$paramsc, ~nexpc, senc(<~plainc, $padc>, keyc), 
+        mac(<keyc, $paramsc, ivc, ~nexpc, senc(<~plainc, $padc>, keyc)>)>
+   )
+   ]
+  --[
+  Recv( ~tid, $C, $S, ~plainc, keyc ), Loop( ~tid, ~sid, 'server' ),
+  LoopPMS( ~tid, $S, $C, pms ), Tid( ~tid, ~sid, 'server' )
+  ]->
+   [
+   St_S_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc, ~ns, X,
+                Y, ivc, ivs, keyc, keys
+   )
+   ]
+
+  // loop breaker: [0]
+  /* has exactly the trivial AC variant */
+
+lemma tid_invariant [use_induction, reuse]:
+  all-traces
+  "∀ tid sid role #i.
+    (Tid( tid, sid, role ) @ #i) ⇒
+    (∃ #j. (InitTid( tid, sid, role ) @ #j) ∧ (#j < #i))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ tid sid role #i.
+  (Tid( tid, sid, role ) @ #i)
+ ∧
+  ∀ #j. (InitTid( tid, sid, role ) @ #j) ⇒ ¬(#j < #i)"
+*/
+induction
+  case empty_trace
+  by contradiction // from formulas
+next
+  case non_empty_trace
+  simplify
+  solve( (last(#i))  ∥
+         (∃ #j.
+           (InitTid( tid, sid, role ) @ #j) ∧ (¬(last(#j))) ∧ (#j < #i)) )
+    case case_1
+    solve( Tid( tid, sid, role ) @ #i )
+      case C_1_resume
+      solve( St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ncOld,
+                          ~ns, XOld, Y, ivc, ivs, keyc, keys
+             ) ▶₂ #i )
+        case C_2_case_1
+        by contradiction // from formulas
+      next
+        case C_2_case_2
+        by contradiction // from formulas
+      next
+        case C_2_resume
+        by contradiction // from formulas
+      next
+        case C_recv_appdata
+        by contradiction // from formulas
+      next
+        case C_send_appdata
+        by contradiction // from formulas
+      qed
+    next
+      case C_1_retry
+      solve( St_C_1_init( ~tid, $C, ~nc, ~sid, $pc, ~x ) ▶₂ #i )
+        case C_1
+        by contradiction // from formulas
+      next
+        case C_1_retry
+        by contradiction // from formulas
+      qed
+    next
+      case C_2
+      solve( St_C_1_init( ~tid, $C, ~nc, ~sid, $pc, ~x ) ▶₂ #i )
+        case C_1
+        by contradiction // from formulas
+      next
+        case C_1_retry
+        by contradiction // from formulas
+      qed
+    next
+      case C_2_resume
+      solve( St_C_1_resume( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc,
+                            nsOld, X, Y
+             ) ▶₁ #i )
+        case C_1_resume_case_1
+        by contradiction // from formulas
+      next
+        case C_1_resume_case_2
+        by contradiction // from formulas
+      next
+        case C_1_resume_case_3
+        by contradiction // from formulas
+      next
+        case C_1_resume_case_4
+        by contradiction // from formulas
+      next
+        case C_1_resume_case_5
+        by contradiction // from formulas
+      qed
+    next
+      case C_recv_appdata
+      solve( St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc,
+                          ~ns, X, Y, ivc, ivs, keyc, keys
+             ) ▶₀ #i )
+        case C_2_case_1
+        by contradiction // from formulas
+      next
+        case C_2_case_2
+        by contradiction // from formulas
+      next
+        case C_2_resume
+        by contradiction // from formulas
+      next
+        case C_recv_appdata
+        by contradiction // from formulas
+      next
+        case C_send_appdata
+        by contradiction // from formulas
+      qed
+    next
+      case C_send_appdata
+      solve( St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc,
+                          ~ns, X, Y, ivc, ivs, keyc, keys
+             ) ▶₀ #i )
+        case C_2_case_1
+        by contradiction // from formulas
+      next
+        case C_2_case_2
+        by contradiction // from formulas
+      next
+        case C_2_resume
+        by contradiction // from formulas
+      next
+        case C_recv_appdata
+        by contradiction // from formulas
+      next
+        case C_send_appdata
+        by contradiction // from formulas
+      qed
+    next
+      case S_1_resume
+      solve( St_S_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ncOld,
+                          nsOld, XOld, Y, ivc, ivs, keyc, keys
+             ) ▶₂ #i )
+        case S_2
+        by contradiction // from formulas
+      next
+        case S_2_resume
+        by contradiction // from formulas
+      next
+        case S_recv_appdata
+        by contradiction // from formulas
+      next
+        case S_send_appdata
+        by contradiction // from formulas
+      qed
+    next
+      case S_2
+      solve( St_S_1_init( ~tid, $S, $C, ~sid, ~nc, $pc, ~ns, $ps, pms
+             ) ▶₂ #i )
+        case S_1
+        by contradiction // from formulas
+      qed
+    next
+      case S_2_resume
+      solve( St_S_1_resume( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc,
+                            ~ns, X, Y
+             ) ▶₁ #i )
+        case S_1_resume
+        by contradiction // from formulas
+      qed
+    next
+      case S_recv_appdata
+      solve( St_S_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc,
+                          ~ns, X, Y, ivc, ivs, keyc, keys
+             ) ▶₀ #i )
+        case S_2
+        by contradiction // from formulas
+      next
+        case S_2_resume
+        by contradiction // from formulas
+      next
+        case S_recv_appdata
+        by contradiction // from formulas
+      next
+        case S_send_appdata
+        by contradiction // from formulas
+      qed
+    next
+      case S_send_appdata
+      solve( St_S_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc,
+                          ~ns, X, Y, ivc, ivs, keyc, keys
+             ) ▶₀ #i )
+        case S_2
+        by contradiction // from formulas
+      next
+        case S_2_resume
+        by contradiction // from formulas
+      next
+        case S_recv_appdata
+        by contradiction // from formulas
+      next
+        case S_send_appdata
+        by contradiction // from formulas
+      qed
+    qed
+  next
+    case case_2
+    by contradiction // from formulas
+  qed
+qed
+
+lemma one_inittid_per_tid [use_induction, reuse]:
+  all-traces
+  "∀ tid sid sid2 role role2 #i #j.
+    ((InitTid( tid, sid, role ) @ #i) ∧
+     (InitTid( tid, sid2, role2 ) @ #j)) ⇒
+    (#i = #j)"
+/*
+guarded formula characterizing all counter-examples:
+"∃ tid sid sid2 role role2 #i #j.
+  (InitTid( tid, sid, role ) @ #i) ∧
+  (InitTid( tid, sid2, role2 ) @ #j)
+ ∧
+  ¬(#i = #j)"
+*/
+induction
+  case empty_trace
+  by contradiction // from formulas
+next
+  case non_empty_trace
+  simplify
+  solve( (#i < #j)  ∥ (#j < #i) )
+    case case_1
+    solve( InitTid( tid, sid, role ) @ #i )
+      case C_1
+      solve( InitTid( ~nc, sid2, role2 ) @ #j )
+        case C_1
+        by contradiction // cyclic
+      qed
+    next
+      case S_1
+      solve( !Ltk( $S, ~ltkS ) ▶₃ #i )
+        case Register_pk
+        solve( InitTid( ~ns, sid2, role2 ) @ #j )
+          case S_1
+          by contradiction // cyclic
+        qed
+      qed
+    qed
+  next
+    case case_2
+    solve( InitTid( tid, sid, role ) @ #i )
+      case C_1
+      solve( InitTid( ~nc, sid2, role2 ) @ #j )
+        case C_1
+        by contradiction // cyclic
+      qed
+    next
+      case S_1
+      solve( !Ltk( $S, ~ltkS ) ▶₃ #i )
+        case Register_pk
+        solve( InitTid( ~ns, sid2, role2 ) @ #j )
+          case S_1
+          by contradiction // cyclic
+        qed
+      qed
+    qed
+  qed
+qed
+
+lemma nc_invariant_for_client [use_induction, reuse]:
+  all-traces
+  "∀ tid nc #i.
+    (Nc( tid, nc ) @ #i) ⇒ (∃ #j. (GenNc( tid, nc ) @ #j) ∧ (#j < #i))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ tid nc #i.
+  (Nc( tid, nc ) @ #i) ∧ ∀ #j. (GenNc( tid, nc ) @ #j) ⇒ ¬(#j < #i)"
+*/
+induction
+  case empty_trace
+  by contradiction // from formulas
+next
+  case non_empty_trace
+  simplify
+  solve( (last(#i))  ∥
+         (∃ #j. (GenNc( ~tid, ~nc ) @ #j) ∧ (¬(last(#j))) ∧ (#j < #i)) )
+    case case_1
+    solve( InitTid( ~tid, ~sid, 'client' ) @ #j )
+      case C_1
+      solve( St_C_1_init( ~tid, $C, ~nc, ~sid, $pc, ~x ) ▶₂ #i )
+        case C_1
+        by contradiction // from formulas
+      next
+        case C_1_retry
+        by contradiction // from formulas
+      qed
+    qed
+  next
+    case case_2
+    by contradiction // from formulas
+  qed
+qed
+
+lemma fresh_secret [use_induction, reuse]:
+  all-traces
+  "∀ tid fresh #i #j.
+    ((DH( tid, fresh ) @ #i) ∧ (!KU( fresh ) @ #j)) ⇒
+    (∃ #r. RevDHExp( tid ) @ #r)"
+/*
+guarded formula characterizing all counter-examples:
+"∃ tid fresh #i #j.
+  (DH( tid, fresh ) @ #i) ∧ (!KU( fresh ) @ #j)
+ ∧
+  ∀ #r. (RevDHExp( tid ) @ #r) ⇒ ⊥"
+*/
+simplify
+solve( DH( tid, fresh ) @ #i )
+  case C_1
+  solve( !KU( ~x ) @ #j )
+    case C_1_resume_case_1
+    by solve( InitTid( ~tid, ~x, 'client' ) @ #j.1 )
+  next
+    case C_1_resume_case_2
+    by solve( InitTid( ~tid, ~x, 'client' ) @ #j.1 )
+  next
+    case C_1_retry
+    by solve( InitTid( ~nc.1, ~x, 'client' ) @ #j.1 )
+  next
+    case Reveal_DHExp
+    by contradiction // from formulas
+  qed
+next
+  case C_1_resume
+  solve( !KU( ~x ) @ #j.1 )
+    case C_1_resume_case_1
+    by solve( InitTid( ~tid.1, ~x, 'client' ) @ #j.2 )
+  next
+    case C_1_resume_case_2
+    by solve( InitTid( ~tid.1, ~x, 'client' ) @ #j.2 )
+  next
+    case C_1_retry
+    by solve( InitTid( ~nc.1, ~x, 'client' ) @ #j.1 )
+  next
+    case Reveal_DHExp_case_1
+    by contradiction // from formulas
+  next
+    case Reveal_DHExp_case_2
+    by contradiction // from formulas
+  next
+    case Reveal_DHExp_case_3
+    by contradiction // from formulas
+  next
+    case Reveal_DHExp_case_4
+    by contradiction // from formulas
+  next
+    case Reveal_DHExp_case_5
+    by contradiction // from formulas
+  qed
+next
+  case C_1_retry
+  solve( !KU( ~x2 ) @ #j.1 )
+    case C_1_resume_case_1
+    by solve( InitTid( ~tid, ~x2, 'client' ) @ #j.2 )
+  next
+    case C_1_resume_case_2
+    by solve( InitTid( ~tid, ~x2, 'client' ) @ #j.2 )
+  next
+    case C_1_retry
+    by solve( InitTid( ~nc.1, ~x2, 'client' ) @ #j.2 )
+  next
+    case Reveal_DHExp
+    by contradiction // from formulas
+  qed
+next
+  case S_1
+  solve( !KU( ~y ) @ #j )
+    case C_1_resume_case_1
+    by solve( InitTid( ~tid, ~y, 'client' ) @ #j.1 )
+  next
+    case C_1_resume_case_2
+    by solve( InitTid( ~tid, ~y, 'client' ) @ #j.1 )
+  next
+    case C_1_retry
+    by solve( InitTid( ~nc.1, ~y, 'client' ) @ #j.1 )
+  next
+    case Reveal_DHExp
+    by contradiction // from formulas
+  qed
+qed
+
+lemma pms_invariant [use_induction, reuse]:
+  all-traces
+  "∀ tid actor peer pms #i.
+    (LoopPMS( tid, actor, peer, pms ) @ #i) ⇒
+    (∃ #j. (PMS( tid, actor, peer, pms ) @ #j) ∧ (#j < #i))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ tid actor peer pms #i.
+  (LoopPMS( tid, actor, peer, pms ) @ #i)
+ ∧
+  ∀ #j. (PMS( tid, actor, peer, pms ) @ #j) ⇒ ¬(#j < #i)"
+*/
+induction
+  case empty_trace
+  by contradiction // from formulas
+next
+  case non_empty_trace
+  simplify
+  solve( (last(#i))  ∥
+         (∃ #j.
+           (PMS( tid, actor, peer, pms ) @ #j) ∧ (¬(last(#j))) ∧ (#j < #i)) )
+    case case_1
+    solve( LoopPMS( tid, actor, peer, pms ) @ #i )
+      case C_1_resume
+      solve( St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ncOld,
+                          ~ns, XOld, Y, ivc, ivs, keyc, keys
+             ) ▶₂ #i )
+        case C_2_case_1
+        by contradiction // from formulas
+      next
+        case C_2_case_2
+        by contradiction // from formulas
+      next
+        case C_2_resume
+        by contradiction // from formulas
+      next
+        case C_recv_appdata
+        by contradiction // from formulas
+      next
+        case C_send_appdata
+        by contradiction // from formulas
+      qed
+    next
+      case C_2_resume
+      solve( St_C_1_resume( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc,
+                            nsOld, X, Y
+             ) ▶₁ #i )
+        case C_1_resume_case_1
+        by contradiction // from formulas
+      next
+        case C_1_resume_case_2
+        by contradiction // from formulas
+      next
+        case C_1_resume_case_3
+        by contradiction // from formulas
+      next
+        case C_1_resume_case_4
+        by contradiction // from formulas
+      next
+        case C_1_resume_case_5
+        by contradiction // from formulas
+      qed
+    next
+      case C_recv_appdata
+      solve( St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc,
+                          ~ns, X, Y, ivc, ivs, keyc, keys
+             ) ▶₀ #i )
+        case C_2_case_1
+        by contradiction // from formulas
+      next
+        case C_2_case_2
+        by contradiction // from formulas
+      next
+        case C_2_resume
+        by contradiction // from formulas
+      next
+        case C_recv_appdata
+        by contradiction // from formulas
+      next
+        case C_send_appdata
+        by contradiction // from formulas
+      qed
+    next
+      case C_send_appdata
+      solve( St_C_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc,
+                          ~ns, X, Y, ivc, ivs, keyc, keys
+             ) ▶₀ #i )
+        case C_2_case_1
+        by contradiction // from formulas
+      next
+        case C_2_case_2
+        by contradiction // from formulas
+      next
+        case C_2_resume
+        by contradiction // from formulas
+      next
+        case C_recv_appdata
+        by contradiction // from formulas
+      next
+        case C_send_appdata
+        by contradiction // from formulas
+      qed
+    next
+      case S_2_resume
+      solve( St_S_1_resume( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc,
+                            ~ns, X, Y
+             ) ▶₁ #i )
+        case S_1_resume
+        solve( St_S_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ncOld,
+                            nsOld, XOld, Y, ivc, ivs, keyc, keys
+               ) ▶₂ #vr )
+          case S_2
+          by contradiction // from formulas
+        next
+          case S_2_resume
+          by contradiction // from formulas
+        next
+          case S_recv_appdata
+          by contradiction // from formulas
+        next
+          case S_send_appdata
+          by contradiction // from formulas
+        qed
+      qed
+    next
+      case S_recv_appdata
+      solve( St_S_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc,
+                          ~ns, X, Y, ivc, ivs, keyc, keys
+             ) ▶₀ #i )
+        case S_2
+        by contradiction // from formulas
+      next
+        case S_2_resume
+        by contradiction // from formulas
+      next
+        case S_recv_appdata
+        by contradiction // from formulas
+      next
+        case S_send_appdata
+        by contradiction // from formulas
+      qed
+    next
+      case S_send_appdata
+      solve( St_S_0_loop( ~tid, $S, $C, ~sid, $ps, $pc, pms, rms, ~nc,
+                          ~ns, X, Y, ivc, ivs, keyc, keys
+             ) ▶₀ #i )
+        case S_2
+        by contradiction // from formulas
+      next
+        case S_2_resume
+        by contradiction // from formulas
+      next
+        case S_recv_appdata
+        by contradiction // from formulas
+      next
+        case S_send_appdata
+        by contradiction // from formulas
+      qed
+    qed
+  next
+    case case_2
+    by contradiction // from formulas
+  qed
+qed
+
+lemma inittid_before_loop [use_induction, reuse]:
+  all-traces
+  "∀ tid sid role #i.
+    (Loop( tid, sid, role ) @ #i) ⇒
+    (∃ #j. (InitTid( tid, sid, role ) @ #j) ∧ (#j < #i))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ tid sid role #i.
+  (Loop( tid, sid, role ) @ #i)
+ ∧
+  ∀ #j. (InitTid( tid, sid, role ) @ #j) ⇒ ¬(#j < #i)"
+*/
+induction
+  case empty_trace
+  by contradiction // from formulas
+next
+  case non_empty_trace
+  simplify
+  solve( (last(#i))  ∥
+         (∃ #j.
+           (InitTid( tid, sid, role ) @ #j) ∧ (¬(last(#j))) ∧ (#j < #i)) )
+    case case_1
+    solve( Loop( tid, sid, role ) @ #i )
+      case C_2_resume
+      by contradiction // from formulas
+    next
+      case C_recv_appdata
+      by contradiction // from formulas
+    next
+      case C_send_appdata
+      by contradiction // from formulas
+    next
+      case S_1_resume
+      by contradiction // from formulas
+    next
+      case S_2_resume
+      by contradiction // from formulas
+    next
+      case S_recv_appdata
+      by contradiction // from formulas
+    next
+      case S_send_appdata
+      by contradiction // from formulas
+    qed
+  next
+    case case_2
+    by contradiction // from formulas
+  qed
+qed
+
+lemma pms_secret [reuse]:
+  all-traces
+  "∀ tid actor peer pms #i #j #k.
+    (((PMS( tid, actor, peer, pms ) @ #i) ∧ (!KU( pms ) @ #j)) ∧
+     (SecretPMS( tid ) @ #k)) ⇒
+    (((∃ #r. (RevLtk( peer ) @ #r) ∧ (#r < #i)) ∨
+      (∃ #r. RevDHExp( tid ) @ #r)) ∨
+     (∃ tid2 #r #s.
+       (RevDHExp( tid2 ) @ #r) ∧
+       (Partner( tid2, tid, peer, actor ) @ #s)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ tid actor peer pms #i #j #k.
+  (PMS( tid, actor, peer, pms ) @ #i) ∧
+  (!KU( pms ) @ #j) ∧
+  (SecretPMS( tid ) @ #k)
+ ∧
+  (∀ #r. (RevLtk( peer ) @ #r) ⇒ ¬(#r < #i)) ∧
+  (∀ #r. (RevDHExp( tid ) @ #r) ⇒ ⊥) ∧
+  (∀ tid2 #r #s.
+    (RevDHExp( tid2 ) @ #r) ∧ (Partner( tid2, tid, peer, actor ) @ #s)
+   ⇒
+    ⊥)"
+*/
+simplify
+solve( PMS( ~tid, actor, peer, pms ) @ #i )
+  case C_2
+  solve( !KU( senc(<$encext, $S, pk(~ltkS), $certreq, 
+                    sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                            $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                         ~ltkS), 
+                    PRF(<
+                         PRF(<pms, 'handshake_master_secret', 
+                              h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                         'server_finished', 
+                         h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                            pk(~ltkS), $certreq, 
+                            sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                    $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                 ~ltkS)
+                           >)
+                        >)
+                   >,
+                   PRFsecond48(<
+                                PRF(<pms, 'handshake_master_secret', 
+                                     h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                'key_expansion', ~ns, ~nc>))
+         ) @ #vk.21 )
+    case S_1
+    solve( St_C_1_init( ~tid, $C, ~nc, ~sid, $pc, ~x ) ▶₂ #i )
+      case C_1
+      solve( !KU( 'g'^(~x*~y) ) @ #j.1 )
+        case C_1
+        by contradiction // from formulas
+      next
+        case S_1
+        by contradiction // from formulas
+      next
+        case cexp
+        by contradiction // from formulas
+      qed
+    next
+      case C_1_retry
+      solve( !KU( 'g'^(~x*~y) ) @ #j.1 )
+        case C_1_retry
+        by contradiction // from formulas
+      next
+        case S_1
+        by contradiction // from formulas
+      next
+        case cexp
+        by contradiction // from formulas
+      qed
+    qed
+  next
+    case csenc
+    solve( !KU( sign(h(<'server_certificate_verify', $C, ~nc, ~sid, 
+                        $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), 
+                        $certreq>),
+                     ~ltkS)
+           ) @ #vk.31 )
+      case S_1
+      solve( St_C_1_init( ~tid, $C, ~nc, ~sid, $pc, ~x ) ▶₂ #i )
+        case C_1
+        solve( !KU( 'g'^(~x*~y) ) @ #j.1 )
+          case C_1
+          by contradiction // from formulas
+        next
+          case S_1
+          by contradiction // from formulas
+        next
+          case cexp
+          by contradiction // from formulas
+        qed
+      next
+        case C_1_retry
+        solve( !KU( 'g'^(~x*~y) ) @ #j.1 )
+          case C_1_retry
+          by contradiction // from formulas
+        next
+          case S_1
+          by contradiction // from formulas
+        next
+          case cexp
+          by contradiction // from formulas
+        qed
+      qed
+    next
+      case csign
+      solve( !Ltk( $S, ~ltkS ) ▶₁ #i )
+        case Register_pk
+        solve( !KU( ~ltkS ) @ #vk.34 )
+          case C_1_resume_case_1
+          by solve( InitTid( ~tid.1, ~ltkS, 'client' ) @ #j.3 )
+        next
+          case C_1_resume_case_2
+          by solve( InitTid( ~tid.1, ~ltkS, 'client' ) @ #j.3 )
+        next
+          case C_1_retry
+          by solve( InitTid( ~nc.2, ~ltkS, 'client' ) @ #j )
+        next
+          case Reveal_Ltk
+          by contradiction // from formulas
+        qed
+      qed
+    qed
+  qed
+next
+  case S_2
+  solve( !Ltk( $S.1, ~ltkS.1 ) ▶₁ #k )
+    case Register_pk
+    solve( St_C_1_init( ~tid, $C.1, ~nc.1, ~sid.1, $pc.1, ~x ) ▶₂ #k )
+      case C_1
+      solve( !Ltk( $S, ~ltkS ) ▶₁ #i )
+        case Register_pk
+        by solve( St_S_1_init( ~tid, $S, $C, ~sid, ~nc, $pc, ~ns, $ps, pms
+                  ) ▶₂ #i )
+      qed
+    next
+      case C_1_retry
+      solve( !Ltk( $S, ~ltkS ) ▶₁ #i )
+        case Register_pk
+        by solve( St_S_1_init( ~tid, $S, $C, ~sid, ~nc, $pc, ~ns, $ps, pms
+                  ) ▶₂ #i )
+      qed
+    qed
+  qed
+qed
+
+lemma secret_sessionkeys [use_induction]:
+  all-traces
+  "∀ tid actor peer pms key #i #j.
+    ((SessionKey( tid, actor, peer, pms, key ) @ #i) ∧
+     (!KU( key ) @ #j)) ⇒
+    (((∃ #r. (RevLtk( peer ) @ #r) ∧ (#r < #i)) ∨
+      (∃ #r. RevDHExp( tid ) @ #r)) ∨
+     (∃ tid2 #r #s.
+       (RevDHExp( tid2 ) @ #r) ∧
+       (Partner( tid2, tid, peer, actor ) @ #s)))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ tid actor peer pms key #i #j.
+  (SessionKey( tid, actor, peer, pms, key ) @ #i) ∧ (!KU( key ) @ #j)
+ ∧
+  (∀ #r. (RevLtk( peer ) @ #r) ⇒ ¬(#r < #i)) ∧
+  (∀ #r. (RevDHExp( tid ) @ #r) ⇒ ⊥) ∧
+  (∀ tid2 #r #s.
+    (RevDHExp( tid2 ) @ #r) ∧ (Partner( tid2, tid, peer, actor ) @ #s)
+   ⇒
+    ⊥)"
+*/
+induction
+  case empty_trace
+  by contradiction // from formulas
+next
+  case non_empty_trace
+  simplify
+  solve( (last(#j))  ∥ (last(#i))  ∥
+         (∃ #r. (RevLtk( peer ) @ #r) ∧ (¬(last(#r))) ∧ (#r < #i))  ∥
+         (∃ #r. (RevDHExp( tid ) @ #r) ∧ ¬(last(#r)))  ∥
+         (∃ tid2 #r #s.
+           (RevDHExp( tid2 ) @ #r) ∧ (Partner( tid2, tid, peer, actor ) @ #s)
+          ∧
+           (¬(last(#s))) ∧ (¬(last(#r)))) )
+    case case_1
+    solve( SessionKey( tid, actor, peer, pms, key ) @ #i )
+      case C_2_case_1
+      solve( !KU( PRFfirst48(<
+                              PRF(<
+                                   PRF(<pms, 'handshake_master_secret', 
+                                        h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                   'extended_master_secret', 
+                                   h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                      $S, pk(~ltkS), $certreq, 
+                                      sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                              'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                              pk(~ltkS), $certreq>),
+                                           ~ltkS)
+                                     >)
+                                  >), 
+                              'key_expansion', ~ns, ~nc>)
+             ) @ #j.1 )
+        case cPRFfirst48
+        solve( !KU( PRF(<
+                         PRF(<pms, 'handshake_master_secret', 
+                              h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                         'extended_master_secret', 
+                         h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                            pk(~ltkS), $certreq, 
+                            sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                    $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                 ~ltkS)
+                           >)
+                        >)
+               ) @ #vk.13 )
+          case cPRF
+          solve( !KU( PRF(<pms, 'handshake_master_secret', 
+                           h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>)
+                 ) @ #vk.18 )
+            case cPRF
+            solve( (∃ #r. (RevLtk( $S ) @ #r) ∧ #r < #i)  ∥
+                   (∃ #r. (RevDHExp( ~tid ) @ #r))  ∥
+                   (∃ tid2 #r #s.
+                     (RevDHExp( tid2 ) @ #r) ∧ (Partner( tid2, ~tid, $S, $C ) @ #s)) )
+              case case_1
+              by contradiction // from formulas
+            next
+              case case_2
+              by contradiction // from formulas
+            next
+              case case_3
+              by contradiction // from formulas
+            qed
+          qed
+        qed
+      qed
+    next
+      case C_2_case_2
+      solve( !KU( PRFsecond48(<
+                               PRF(<
+                                    PRF(<pms, 'handshake_master_secret', 
+                                         h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                    'extended_master_secret', 
+                                    h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                       $S, pk(~ltkS), $certreq, 
+                                       sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                               'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                               pk(~ltkS), $certreq>),
+                                            ~ltkS)
+                                      >)
+                                   >), 
+                               'key_expansion', ~ns, ~nc>)
+             ) @ #j.1 )
+        case cPRFsecond48
+        solve( !KU( PRF(<
+                         PRF(<pms, 'handshake_master_secret', 
+                              h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                         'extended_master_secret', 
+                         h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                            pk(~ltkS), $certreq, 
+                            sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                    $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                 ~ltkS)
+                           >)
+                        >)
+               ) @ #vk.13 )
+          case cPRF
+          solve( !KU( PRF(<pms, 'handshake_master_secret', 
+                           h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>)
+                 ) @ #vk.18 )
+            case cPRF
+            solve( (∃ #r. (RevLtk( $S ) @ #r) ∧ #r < #i)  ∥
+                   (∃ #r. (RevDHExp( ~tid ) @ #r))  ∥
+                   (∃ tid2 #r #s.
+                     (RevDHExp( tid2 ) @ #r) ∧ (Partner( tid2, ~tid, $S, $C ) @ #s)) )
+              case case_1
+              by contradiction // from formulas
+            next
+              case case_2
+              by contradiction // from formulas
+            next
+              case case_3
+              by contradiction // from formulas
+            qed
+          qed
+        qed
+      qed
+    next
+      case C_2_resume_case_1
+      solve( PMS( ~tid, $C, $S, pms ) @ #j )
+        case C_2
+        solve( !KU( PRFfirst48(<
+                                PRF(<
+                                     PRF(<pms, 'handshake_master_secret', 
+                                          h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                     'extended_master_secret', 
+                                     h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                'key_expansion', ~ns, ~nc>)
+               ) @ #j.2 )
+          case cPRFfirst48
+          solve( !KU( PRF(<
+                           PRF(<pms, 'handshake_master_secret', 
+                                h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                           'extended_master_secret', 
+                           h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>)
+                 ) @ #vk.21 )
+            case cPRF
+            solve( !KU( PRF(<pms, 'handshake_master_secret', 
+                             h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>)
+                   ) @ #vk.26 )
+              case cPRF
+              solve( (∃ #r. (RevLtk( $S ) @ #r) ∧ #r < #j)  ∥
+                     (∃ #r. (RevDHExp( ~tid ) @ #r))  ∥
+                     (∃ tid2 #r #s.
+                       (RevDHExp( tid2 ) @ #r) ∧ (Partner( tid2, ~tid, $S, $C ) @ #s)) )
+                case case_1
+                by contradiction // from formulas
+              next
+                case case_2
+                by contradiction // from formulas
+              next
+                case case_3
+                by contradiction // from formulas
+              qed
+            qed
+          qed
+        qed
+      next
+        case S_2
+        solve( InitTid( ~tid, ~sid, 'client' ) @ #j.1 )
+          case C_1
+          by solve( InitTid( ~tid, ~sid.1, 'server' ) @ #j.1 )
+        qed
+      qed
+    next
+      case C_2_resume_case_2
+      solve( PMS( ~tid, $C, $S, pms ) @ #j )
+        case C_2
+        solve( !KU( PRFsecond48(<
+                                 PRF(<
+                                      PRF(<pms, 'handshake_master_secret', 
+                                           h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                      'extended_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                 'key_expansion', ~ns, ~nc>)
+               ) @ #j.2 )
+          case cPRFsecond48
+          solve( !KU( PRF(<
+                           PRF(<pms, 'handshake_master_secret', 
+                                h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                           'extended_master_secret', 
+                           h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>)
+                 ) @ #vk.21 )
+            case cPRF
+            solve( !KU( PRF(<pms, 'handshake_master_secret', 
+                             h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>)
+                   ) @ #vk.26 )
+              case cPRF
+              solve( (∃ #r. (RevLtk( $S ) @ #r) ∧ #r < #j)  ∥
+                     (∃ #r. (RevDHExp( ~tid ) @ #r))  ∥
+                     (∃ tid2 #r #s.
+                       (RevDHExp( tid2 ) @ #r) ∧ (Partner( tid2, ~tid, $S, $C ) @ #s)) )
+                case case_1
+                by contradiction // from formulas
+              next
+                case case_2
+                by contradiction // from formulas
+              next
+                case case_3
+                by contradiction // from formulas
+              qed
+            qed
+          qed
+        qed
+      next
+        case S_2
+        solve( InitTid( ~tid, ~sid, 'client' ) @ #j.1 )
+          case C_1
+          by solve( InitTid( ~tid, ~sid.1, 'server' ) @ #j.1 )
+        qed
+      qed
+    qed
+  next
+    case case_2
+    solve( SessionKey( tid, actor, peer, pms, key ) @ #i )
+      case C_2_case_1
+      solve( !KU( PRFfirst48(<
+                              PRF(<
+                                   PRF(<pms, 'handshake_master_secret', 
+                                        h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                   'extended_master_secret', 
+                                   h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                      $S, pk(~ltkS), $certreq, 
+                                      sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                              'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                              pk(~ltkS), $certreq>),
+                                           ~ltkS)
+                                     >)
+                                  >), 
+                              'key_expansion', ~ns, ~nc>)
+             ) @ #j.1 )
+        case cPRFfirst48
+        solve( !KU( PRF(<
+                         PRF(<pms, 'handshake_master_secret', 
+                              h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                         'extended_master_secret', 
+                         h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                            pk(~ltkS), $certreq, 
+                            sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                    $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                 ~ltkS)
+                           >)
+                        >)
+               ) @ #vk.13 )
+          case cPRF
+          solve( !KU( PRF(<pms, 'handshake_master_secret', 
+                           h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>)
+                 ) @ #vk.18 )
+            case cPRF
+            solve( (∃ #r. (RevLtk( $S ) @ #r) ∧ #r < #i)  ∥
+                   (∃ #r. (RevDHExp( ~tid ) @ #r))  ∥
+                   (∃ tid2 #r #s.
+                     (RevDHExp( tid2 ) @ #r) ∧ (Partner( tid2, ~tid, $S, $C ) @ #s)) )
+              case case_1
+              by contradiction // from formulas
+            next
+              case case_2
+              by contradiction // from formulas
+            next
+              case case_3
+              by contradiction // from formulas
+            qed
+          qed
+        qed
+      qed
+    next
+      case C_2_case_2
+      solve( !KU( PRFsecond48(<
+                               PRF(<
+                                    PRF(<pms, 'handshake_master_secret', 
+                                         h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                                    'extended_master_secret', 
+                                    h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, 
+                                       $S, pk(~ltkS), $certreq, 
+                                       sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 
+                                               'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                                               pk(~ltkS), $certreq>),
+                                            ~ltkS)
+                                      >)
+                                   >), 
+                               'key_expansion', ~ns, ~nc>)
+             ) @ #j.1 )
+        case cPRFsecond48
+        solve( !KU( PRF(<
+                         PRF(<pms, 'handshake_master_secret', 
+                              h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>), 
+                         'extended_master_secret', 
+                         h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y, $encext, $S, 
+                            pk(~ltkS), $certreq, 
+                            sign(h(<'server_certificate_verify', $C, ~nc, ~sid, $pc, 'g'^~x, 
+                                    $S, ~ns, ~sid, $ps, Y, $encext, $S, pk(~ltkS), $certreq>),
+                                 ~ltkS)
+                           >)
+                        >)
+               ) @ #vk.13 )
+          case cPRF
+          solve( !KU( PRF(<pms, 'handshake_master_secret', 
+                           h(<$C, ~nc, ~sid, $pc, 'g'^~x, $S, ~ns, ~sid, $ps, Y>)>)
+                 ) @ #vk.18 )
+            case cPRF
+            solve( (∃ #r. (RevLtk( $S ) @ #r) ∧ #r < #i)  ∥
+                   (∃ #r. (RevDHExp( ~tid ) @ #r))  ∥
+                   (∃ tid2 #r #s.
+                     (RevDHExp( tid2 ) @ #r) ∧ (Partner( tid2, ~tid, $S, $C ) @ #s)) )
+              case case_1
+              by contradiction // from formulas
+            next
+              case case_2
+              by contradiction // from formulas
+            next
+              case case_3
+              by contradiction // from formulas
+            qed
+          qed
+        qed
+      qed
+    next
+      case C_2_resume_case_1
+      solve( PMS( ~tid, $C, $S, pms ) @ #j )
+        case C_2
+        solve( !KU( PRFfirst48(<
+                                PRF(<
+                                     PRF(<pms, 'handshake_master_secret', 
+                                          h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                     'extended_master_secret', 
+                                     h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                'key_expansion', ~ns, ~nc>)
+               ) @ #j.2 )
+          case cPRFfirst48
+          solve( !KU( PRF(<
+                           PRF(<pms, 'handshake_master_secret', 
+                                h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                           'extended_master_secret', 
+                           h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>)
+                 ) @ #vk.21 )
+            case cPRF
+            solve( !KU( PRF(<pms, 'handshake_master_secret', 
+                             h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>)
+                   ) @ #vk.26 )
+              case cPRF
+              solve( (∃ #r. (RevLtk( $S ) @ #r) ∧ #r < #j)  ∥
+                     (∃ #r. (RevDHExp( ~tid ) @ #r))  ∥
+                     (∃ tid2 #r #s.
+                       (RevDHExp( tid2 ) @ #r) ∧ (Partner( tid2, ~tid, $S, $C ) @ #s)) )
+                case case_1
+                by contradiction // from formulas
+              next
+                case case_2
+                by contradiction // from formulas
+              next
+                case case_3
+                by contradiction // from formulas
+              qed
+            qed
+          qed
+        qed
+      next
+        case S_2
+        solve( InitTid( ~tid, ~sid, 'client' ) @ #j.1 )
+          case C_1
+          by solve( InitTid( ~tid, ~sid.1, 'server' ) @ #j.1 )
+        qed
+      qed
+    next
+      case C_2_resume_case_2
+      solve( PMS( ~tid, $C, $S, pms ) @ #j )
+        case C_2
+        solve( !KU( PRFsecond48(<
+                                 PRF(<
+                                      PRF(<pms, 'handshake_master_secret', 
+                                           h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                      'extended_master_secret', 
+                                      h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                                 'key_expansion', ~ns, ~nc>)
+               ) @ #j.2 )
+          case cPRFsecond48
+          solve( !KU( PRF(<
+                           PRF(<pms, 'handshake_master_secret', 
+                                h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>), 
+                           'extended_master_secret', 
+                           h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>)
+                 ) @ #vk.21 )
+            case cPRF
+            solve( !KU( PRF(<pms, 'handshake_master_secret', 
+                             h(<$C, ~nc, ~sid, $pc, X, $S, ~ns, ~sid, $ps>)>)
+                   ) @ #vk.26 )
+              case cPRF
+              solve( (∃ #r. (RevLtk( $S ) @ #r) ∧ #r < #j)  ∥
+                     (∃ #r. (RevDHExp( ~tid ) @ #r))  ∥
+                     (∃ tid2 #r #s.
+                       (RevDHExp( tid2 ) @ #r) ∧ (Partner( tid2, ~tid, $S, $C ) @ #s)) )
+                case case_1
+                by contradiction // from formulas
+              next
+                case case_2
+                by contradiction // from formulas
+              next
+                case case_3
+                by contradiction // from formulas
+              qed
+            qed
+          qed
+        qed
+      next
+        case S_2
+        solve( InitTid( ~tid, ~sid, 'client' ) @ #j.1 )
+          case C_1
+          by solve( InitTid( ~tid, ~sid.1, 'server' ) @ #j.1 )
+        qed
+      qed
+    qed
+  next
+    case case_3
+    by contradiction // from formulas
+  next
+    case case_4
+    by contradiction // from formulas
+  next
+    case case_5
+    by contradiction // from formulas
+  qed
+qed
+
+/* All well-formedness checks were successful. */
+
+end

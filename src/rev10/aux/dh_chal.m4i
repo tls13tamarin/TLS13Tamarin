@@ -1,0 +1,7 @@
+define(<!lemma_dh_chal!>,<!
+// Needed for {es,ss}_weak proofs
+lemma dh_chal [reuse]:
+  "All a b X Y Z #i #j. DHChal(a, b, X, Y, Z)@i & KU(Z)@j ==> 
+    (Ex #r. KU(a)@r) | (Ex #r. KU(b)@r) | (a = 1) | (b = 1)"
+!>)dnl
+dnl

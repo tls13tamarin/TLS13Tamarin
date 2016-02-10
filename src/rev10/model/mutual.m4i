@@ -1,0 +1,421 @@
+/**
+    C1 KC Auth
+    -----------------
+
+    The client appends client authentication to the end
+    of the early data sent in C1_KC.
+
+    This rule can only occur once per handshake, since the
+    auth_status variable changes from 'no_auth' to 'auth_sent'.
+
+    Variables:
+        c_signature - the client signature
+        messages - the continuing handshake transcript      
+
+    Premises:
+        St_init_KC - client state from C_1_KC
+        !Ltk(C, ~ltkC) - client's long-term key
+
+    Actions:
+        C1_KC_Auth(tid)
+        C_ACTIONS
+        UseLtk
+        SignData(...)
+
+    Conclusions:
+        St_init_KC(...) - client state remains at c_1_kc
+        Out(....)       - client sends authentication with outgoing messages
+
+    Rule variant:
+        N/A
+*/
+rule C_1_KC_Auth:
+let
+    // Default C2 values
+    tid = ~nc
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+    S   = $S
+
+    // Client Key Share
+    ga   = 'g'^~a
+
+    messages = prev_messages
+    hs_hashc = ED_HS_HASH
+
+    c_signature_messages = <<messages, config_hash>, 'client_cert_verify'>
+    c_signature = sign{c_signature_messages}~ltkC
+
+    messages = <messages, ClientCertificate, ClientCertificateVerify>
+in
+    [ St_init_KC(C,1, tid, C, nc, pc, S, ~a, ss, prev_messages, config_hash, 'no_auth')
+    , !Ltk(C, ~ltkC)
+    ]
+  --[ C1_KC_Auth(tid)
+    , C_ACTIONS
+    , UseLtk(C, ~ltkC)
+    , SignData(C, c_signature_messages)
+    ]->
+    [ St_init_KC(C,1, tid, C, nc, pc, S, ~a, ss, messages, config_hash, 'auth_sent') 
+    , Out(<C,senc{ClientCertificate,ClientCertificateVerify}EDKEYC>)
+    ]
+
+
+
+
+
+/* ------- Server phase 1a: Receive ClientHello + Send ServerHello -------*/
+/*
+  S1 Known Config RecvAuth
+  ----------------
+  
+  This is the equivalent to the S_1_KC rule, except the server
+  additionally accepts the 0-RTT client authentication
+  
+  Rule variants:
+    S_1 - accepts regular DHE handshake from client               (tls13)
+    S_1_KC_RecvAuth - 0-RTT handshake with client authentication  (mutual)
+    S_1_PSK - uses a previously established PSK                   (psk)
+    S_1_PSK_DHE -  PSK handshake with DHE exchange                (psk)
+*/
+rule S_1_KC_RecvAuth:
+let
+    // Default S1 values
+    tid = ~ns
+
+    // Client Hello
+    C = $C
+    nc = ~nc
+    pc = $pc
+    ga = 'g'^a
+
+
+    // Server Hello
+    S  = $S
+    ns = ~ns
+    ps = $ps
+    gb = 'g'^~b
+
+    // Server Configuration
+    Y = 'g'^~y2
+
+    ss = ga^~y
+    es = ga^~b
+
+    messages = <C1_MSGS>
+
+    // hash for incoming messages
+    hs_hashc = ED_HS_HASH
+
+    c_signature_messages = <<messages, config_hash>, 'client_cert_verify'>
+
+    messages = <messages, ClientCertificate, ClientCertificateVerify>
+
+    messages = <messages,S1_MSGS_1>
+
+
+    // handshake_hash for outgoing messages
+    hs_hashs = HS_HASH    
+
+    // Server Certificate Verify
+    messages = <messages, S1_MSGS_2>
+    
+    s_signature_messages = <messages, 'server_cert_verify'>
+    s_signature = sign{s_signature_messages}~ltkS
+
+    messages = <messages, S1_MSGS_3>
+    
+    // Server Finished
+    server_fin_messages = messages
+    fs_hash = HS_HASH
+    server_fin = hmac(FS, 'server_finished', server_fin_messages) 
+
+    // Server needs to cache for later
+    new_config_hash = h(ServerConfiguration,CertificateRequest,ServerCertificate)
+
+in
+    [ In(<C,C1_MSGS, senc{~data}EDKEYC>)
+    , In(<C,senc{ClientCertificate,ClientCertificateVerify}EDKEYC>)
+    , ServerDH(S, ~y2)
+    , !Ltk(S, ~ltkS)
+    , !Pk(C, pk(~ltkC))
+    , Fr(ns)
+    , Fr(~b)
+//    , Fr(~y)
+    , ServerConfig(S, ~y, config_hash)
+    ]
+  --[ S1_KC_RecvAuth(tid)
+    , Start(tid, S, 'server')
+    , UseLtk(S, ~ltkS)
+    , SignData(S, s_signature_messages)
+    , UseServerConfig(S, ~y, config_hash)
+    , RunningNonces(S, C, 'server', <nc, ns>)
+    , RunningSecrets(S, C, 'server', <ss, es>)
+    , RunningTranscript(S, C, 'server', messages)
+    , RunningKC(S, C, 'server', <Y, new_config_hash>)
+
+    , UsePK(C, pk(~ltkC))
+    , Eq(verify(c_signature, c_signature_messages, pk(~ltkC)), true)
+
+    , Neq(a, 1)
+    , DH(S, ~b)
+    , DHChal(~y, a, 'g'^~y, ga, ga^~y)
+    , DHChal(~b, a, 'g'^~b, ga, ga^~b)
+    ]->
+    [ St_init(S,1a, INIT_STATE, ss, es, messages, new_config_hash, 'auth_recv')
+    , DHExp(S, ~b)
+    , ServerConfig(S, ~y, new_config_hash)
+    , Out(<S,S1_MSGS_1, senc{<S1_MSGS_2, S1_MSGS_3>,ServerFinished}HKEYS>)
+    ]
+
+
+
+
+
+
+/* ------- Server phase 1b: Update authentication state -------*/
+/*
+  S1 PSK Auth
+  ----------------
+  
+  The server has resumed using a PSK which has been previously authenticated.
+
+  The auth_status is set to 'auth_recv' so that it may trigger a later
+  rule to "complete" the client authentication
+
+  Rule variants:
+    S_1_NoAuth - does not accept authentication                    (tls13)
+    S_1_AuthReq - will accept an authentication                    (tls13)
+    S_1_PSK_Auth - PSK handshake with client already authenticated (mutual)
+
+*/
+rule S_1_PSK_Auth:
+let
+    // Default S1 State values
+    tid = ~ns
+    S   = $S
+    ns  = ~ns
+    ps  = $ps
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+    // ss
+    // es
+
+    session_hash = HS_HASH
+in
+    [ St_init_PSK(S,1a, INIT_STATE, ss, es, ~psk_id, messages, config_hash, 'authenticated')
+    ]
+  --[ S1_PSK_Auth(tid)
+    , CommitPSK(S, C, 'server', <~psk_id, ss>)
+    , S_ACTIONS
+    ]->
+    [ St_init(S,1, INIT_STATE, ss, es, messages, config_hash, 'auth_recv')
+    ]
+
+/*
+  S1 PSK No Auth
+  ----------------
+  
+  The server has resumed using a PSK but does not want to use authentication.
+
+  Since client authentication does not take place in a PSK handshake, the
+  server status is set to never allow client authentication (for this handshake)
+
+  Rule variants:
+    S_1_NoAuth - does not accept authentication                    (tls13)
+    S_1_AuthReq - will accept an authentication                    (tls13)
+    S_1_PSK_NoAuth - PSK handshake with no received auth           (psk)
+
+*/
+rule S_1_PSK_NoAuth:
+let
+    // Default S1 State values
+    tid = ~ns
+    S   = $S
+    ns  = ~ns
+    ps  = $ps
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+    // ss
+    // es
+in
+    [ St_init_PSK(S,1a, INIT_STATE, ss, es, ~psk_id,  messages, config_hash, auth_status)
+    ]
+  --[ S1_PSK_NoAuth(tid)
+    , S_ACTIONS
+    ]->
+    [ St_init(S,1, INIT_STATE, ss, es, messages, config_hash, 'never_auth')
+    ]
+
+
+
+
+/* ------- Client phase 2b: Client authentication + Finished -------*/
+/*
+  C2 Auth
+  ----------------
+  
+  Client computes authentication, and  sends along with the Finished message.
+  This (or C_2_NoAuth) follows all initial handshake types.
+
+  
+  Rule variants:
+    C_2_NoAuth - client only send the Finished messages (tls13)
+*/
+rule C_2_Auth:
+let
+    // Default C2 values
+    tid = ~nc
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+    S   = $S
+    ns  = ~ns
+    ps  = $ps
+
+    messages = prev_messages
+    hs_hashc = HS_HASH
+    messages = <messages, ClientCertificate>
+    c_signature_messages = <messages, 'client_cert_verify'>
+    c_signature = sign{c_signature_messages}~ltkC
+
+    messages = <messages, ClientCertificateVerify>
+
+    client_fin_messages = messages
+
+    // Client Finished
+    fs_hash = HS_HASH
+    client_fin = hmac(FS, 'client_finished', client_fin_messages) 
+
+    hs_messages = messages
+
+    session_hash = HS_HASH
+in
+    [ St_init(C,2a, INIT_STATE, ss, es, prev_messages, config_hash, 'no_auth')
+    , !Ltk(C, ~ltkC)
+    ]
+  --[ C2_Auth(tid)
+    , C_ACTIONS
+    , UseLtk(C, ~ltkC)
+    , SignData(C, c_signature_messages)
+    , RunningSecrets(C, S, 'client', <ss, es>)
+    , RunningTranscript(C, S, 'client', hs_messages)
+    , CommitTranscript(C, S, 'client', prev_messages)
+    , SessionKey(C, S, 'client', <KEYC, 'authenticated'>)
+    , SessionKey(C, S, 'client', <KEYS, 'authenticated'>)
+    ]->
+    [ St_init(C,2, INIT_STATE, ss, es, messages, config_hash, 'auth_sent') 
+    , Out(<C,senc{ClientCertificate,ClientCertificateVerify,ClientFinished}HKEYC>)
+    ]
+
+
+
+
+/* ------- Server phase 2: Receive ClientFinished -------*/
+/*
+  S2 RecvAuth
+  ----------------
+  
+  Server receives client finished information along with client
+  authentication. This rule can be reached from all handshake types.
+
+  Rule variants:
+    S_2 - server receives client Finished message (tls13)
+*/
+rule S_2_RecvAuth:
+let
+    // Default S2 State values
+    tid = ~ns
+    S   = $S
+    ns  = ~ns
+    ps  = $ps
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+    // ss
+    // es
+    // session_hash
+    messages = prev_messages
+
+    // handshake has for incoming client message
+    hs_hashc = HS_HASH
+
+    messages = <messages, ClientCertificate>
+
+    c_signature_messages = <messages, 'client_cert_verify'>
+
+    messages = <messages, ClientCertificateVerify>
+
+    client_fin_messages = messages
+    fs_hash = HS_HASH
+    expected_client_fin = hmac(FS, 'client_finished', client_fin_messages) 
+
+    hs_messages = messages
+
+    session_hash = HS_HASH
+in
+    [ St_init(S,1, INIT_STATE, ss, es, prev_messages, config_hash, 'auth_req')
+    , In(<C,senc{ClientCertificate,ClientCertificateVerify,ClientFinished}HKEYC>)
+    , !Pk(C, pk(~ltkC))
+    ]
+  --[ S2_RecvAuth(tid)
+    , UsePK(C, pk(~ltkC))
+    , S_ACTIONS
+    , Eq(verify(c_signature, c_signature_messages, pk(~ltkC)), true)
+    , Eq(ClientFinished, expected_client_fin)
+
+    , RunningTranscript(S, C, 'server', messages)
+    , RunningSecrets(S, C, 'server', <ss, es>)
+    ]->
+    [ St_init(S,2, INIT_STATE, ss, es, messages, config_hash, 'auth_recv')
+    ]
+
+
+
+
+/* ------- Server phase 2b: Update authentication status -------*/
+/*
+  S2 Auth
+  ----------------
+  
+  If the server has at some point received client authentication, then
+  the auth_status will be set to 'auth_recv'.
+
+  This rule triggers the actions which correspond to the server
+  authenticating the client.
+
+  Rule variants:
+    N/A
+*/
+rule S_2_Auth:
+let
+    // Default S2 State values
+    tid = ~ns
+    S   = $S
+    ns  = ~ns
+    ps  = $ps
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+
+    session_hash = HS_HASH
+in
+    [ St_init(S,2, INIT_STATE, ss, es, messages, config_hash, 'auth_recv')
+    ]
+  --[ S2_Auth(tid) 
+    , S_ACTIONS
+
+    , CommitNonces(S, C, 'server', <nc, ns>)
+    , CommitSS(S, C, 'server', ss)
+    , CommitES(S, C, 'server', es)
+    , CommitTranscript(S, C, 'server', messages)
+
+    , SessionKey(S, C, 'server', <KEYC, 'authenticated'>)
+    , SessionKey(S, C, 'server', <KEYS, 'authenticated'>)
+
+    ]->
+    [ St_init(S,2, INIT_STATE, ss, es, messages, config_hash, 'authenticated')
+    ]

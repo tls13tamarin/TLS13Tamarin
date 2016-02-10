@@ -1,0 +1,642 @@
+/* 
+  Temporarily redefine these variables for the PSK context.
+
+  In a straight PSK, there is no DH share, nor certificates 
+  from the server.
+*/
+pushdef(<!S1_MSGS_1!>, <!ServerHello!>)
+pushdef(<!S1_MSGS_2!>, <!ServerEncryptedExtensions!>)
+
+/* ------- Pre-Shared Keys (PSKs) -------*/
+/*
+  Generate PSK
+  -------------
+
+  This rule models some out of band mechanism for pre-shared keys.
+
+  Two identities, $S and $C, are chosen and have resumption secrets assigned.
+
+  PSKs therefore have two possible origins: NST rules, or Gen_PSK.
+
+  Variables:
+
+  Premises:
+    Fr(~psk_id) - fresh, random pre-shared key identifier
+    Fr(~rs)     - fresh, random resumption secret
+
+  Actions:
+    GenPSK(...) - logs the PSK generating for the parties (obsolete?)
+    FreshPSK(...) - logs the fresh PSK generated.
+
+  Conclusions:
+    ClientPSK(...) - the fact needed to start a PSK handshake.
+    ServerPSK(...)
+*/
+rule Gen_PSK:
+    [ Fr(~psk_id), Fr(~rs)]
+  --[ GenPSK($S, 'server')
+    , GenPSK($C, 'client')
+    , FreshPSK(~psk_id,~rs)
+    ]->
+    [ StoreClientPSK($C, ~psk_id, $S, ~rs, 'NULL', 'no_auth')
+    , StoreServerPSK($S, ~psk_id, $C, ~rs, 'NULL', 'no_auth')
+    ]
+
+/*
+  Use Client PSK
+  ----------------
+  
+  Extracts a PSK fact from a stored PSK (for a client).
+
+  Similarly to the semi-static DH rule (UseStaticDH), this
+  allows PSKs to be reusable and expirable.
+
+  Variables:
+    rs - resumption secret
+    ~psk_id - PSK identifier/session ticket
+    C - client $C
+    S - server $S
+
+  Premises:
+    StoreClientPSK(...) - stored PSK
+
+  Actions:
+    UsePSK(...)
+
+  Conclusions:
+    StoreClientPSK(...) - a copy of the input PSK
+    ClientPSK(...) - PSK which can be consumed by a client C1_PSK rule.
+*/
+rule UseClientPSK:
+let
+    C = $C
+    S = $S
+in
+    [ StoreClientPSK(C, ~psk_id, S, rs, config_hash, auth_status)]
+  --[ UsePSK(C, ~psk_id, S, rs, 'client', auth_status)]->[ StoreClientPSK(C, ~psk_id, S, rs, config_hash, auth_status), ClientPSK(C, ~psk_id, S, rs, config_hash, auth_status)]
+
+/*
+  Use Server PSK
+  ---------------
+
+  The server variant of the UseClientPSK rule.
+*/
+rule UseServerPSK:
+let
+    C = $C
+    S = $S
+in
+    [ StoreServerPSK(S, ~psk_id, C, rs, config_hash, auth_status)]
+  --[ UsePSK(S, ~psk_id, C, rs, 'server', auth_status)]->[ StoreServerPSK(S, ~psk_id, C, rs, config_hash, auth_status), ServerPSK(S, ~psk_id, C, rs, config_hash, auth_status)]
+
+
+
+/* ------- Client Phase 1: ClientHello -------*/
+/*
+  C1 Pre-Shared Key
+  ----------------
+  
+  The C1 variant using a pre-shared key used for early data and a 
+  reduced handshake (no authentication).
+
+  Note that the client still sends a DH key share.
+  
+  Variables:
+    ss       - static secrets, simply set to be the resumption secret
+    hs_hashc - handshake hash needed to compute early data key
+    ~psk_id  - identifier sent to the server to select which key to use
+    rs       - resumption secret
+    messages - handshake transcript
+
+  Premises:
+    Fr(~nc)
+    Fr(~a)
+    Fr(~data) - early data to send
+    ClientPSK(...) - client's pre-shared key for the server
+
+  Actions:
+    C1_PSK(tid)
+    Start(...)
+
+    Running*(...)
+    Commit*(...)
+
+    DH($C, ~a)
+    SendData(...)
+    EarlyDataKey(...) - logs key used for early data
+  Conclusions:
+    St_init_PSK(...) - client state, specific to PSK modes
+    DHExp($C, ~a)
+    Out(...) - the client outgoing messages, including the early data
+  
+  Rule variants:
+    C_1 - standard ClientHello in the DHE case                   (tls13)
+    C_1_KC - ClientHello using semi-static DH share to do 0-RTT. (kc)
+*/
+rule C_1_PSK:
+let
+    // Default C1 values
+    tid = ~nc
+
+    // Client Hello
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+    S   = $S
+
+    // C1 using DHE (Client Key Share)
+    ga   = 'g'^~a
+
+    // Set secrets from PSK
+    ss = rs
+
+    messages = <C1_MSGS>
+    hs_hashc = ED_HS_HASH
+
+in
+    [ Fr(nc)
+    , Fr(~data)
+    , Fr(~a)
+    , ClientPSK(C, ~psk_id, S, rs, config_hash, auth_status)
+    ]
+  --[ C1_PSK(tid)
+    , Start(tid, C, 'client')
+
+    , Running(C, S, 'client', nc)
+    , RunningSS(C, S, 'client', ss)
+    , CommitPSK(C, S, 'client', <~psk_id, rs>)
+    , CommitSS(C, S, 'client', ss)
+
+    , DH(C, ~a)
+    , SendData(tid, ~data)
+    , EarlyDataKey(C, S, 'client', EDKEYC)
+    ]->
+    [ St_init_PSK(C,1, tid, C, nc, pc, S, ~a, ss, messages, config_hash, 'never_auth')
+    , DHExp(C, ~a)
+    , Out(<C,C1_MSGS, ~psk_id, senc{~data}EDKEYC>)
+    ]
+
+
+
+
+/* ------- Server phase 1a: Receive ClientHello + Send ServerHello -------*/
+
+/*
+  S1 Pre-Shared Key
+  ----------------
+  
+  The server receives the client hello messages and is
+  happy to proceed with straight PSK mode.
+
+  Server generates response, which just includes ServerHello, 
+  Extensions and the Finished message.
+
+  Since they are in PSK mode, no authentication is used, and cached 
+  ServerConfigs are not generated.
+
+  Variables:
+    ~tid, ~ns   - the server's nonce, tied to the thread id
+    ga          - the client DH share, ignored by the server.
+    ss, es      - static and ephemeral secrets. Set to be the resumption secret.
+    messages    - handshake messages transcript
+    hs_hashc    - the handshake hash for the early data key derivation
+    hs_hashs    - the hash for the outgoing server handshake data.
+
+    S1_MSGS_1 - ServerHello
+    S1_MSGS_2 - ServerEncryptedExtensions
+
+  Premises:
+    In(...) - client hello, key share messages
+    Fr(~ns)
+    ServerPSK(...) - pre-shared key information
+
+  Actions:
+    S1_PSK(tid)
+    Start(...)
+    UseServerPSK(...) - logs server using a PSK
+    
+    Running*(...)  - logging of various important variables
+
+  Conclusions:
+    St_init_PSK(...) - the server state moves to s_1a_psk
+    Out(....)    - server outgoing messages
+
+  Rule variant:
+    S_1 - accepts regular DHE handshake from client                         (tls13)
+    S_1_KC - accepts 0-RTT handshake from client using semi-static DH share (kc)
+    S_1_KC_RecvAuth - 0-RTT handshake with client authentication            (mutual)
+    S_1_PSK_DHE -  PSK handshake with DHE exchange                          (psk)
+
+*/
+rule S_1_PSK:
+let
+    // Default S1 values
+    tid = ~ns
+
+    // Client Hello
+    C = $C
+    nc = ~nc
+    pc = $pc
+
+    // Client Key Share
+    ga = 'g'^a
+
+    // Server Hello
+    S  = $S
+    ns = ~ns
+    ps = $ps
+
+    // Server derives SS and ES
+    // Used in generating keys (see header)
+    ss = rs
+    es = rs
+
+    messages = <C1_MSGS>
+    // hash for incoming messages
+    hs_hashc = ED_HS_HASH
+
+    messages = <messages,S1_MSGS_1>
+
+    // handshake_hash for outgoing messages
+    hs_hashs = HS_HASH
+
+    messages = <messages, S1_MSGS_2>
+
+    // Server Finished
+    server_fin_messages = messages
+    fs_hash = HS_HASH
+    server_fin = hmac(FS, 'server_finished', server_fin_messages) 
+
+    hs_messages = messages
+in
+    [ In(<C,C1_MSGS, ~psk_id, senc{~data}EDKEYC>)
+    , Fr(~ns)
+    , ServerPSK(S, ~psk_id, C, rs, config_hash, auth_status)
+    ]
+  --[ S1_PSK(tid)
+    , Start(tid, S, 'server')
+    , UseServerPSK(S, C, 'server', <~psk_id, rs>)
+
+    , RunningNonces(S, C, 'server', <nc, ns>)
+    , RunningSecrets(S, C, 'server', <ss, es>)
+    , RunningTranscript(S, C, 'server', messages)
+    ]->
+    [ St_init_PSK(S,1a, INIT_STATE, ss, es, ~psk_id, messages, config_hash, auth_status)
+    , Out(<S,S1_MSGS_1, senc{<S1_MSGS_2>,ServerFinished}HKEYS>)
+    ]
+
+
+/*
+The following rule uses DHE
+so the server returns to sending a key share.
+*/
+popdef(<!S1_MSGS_1!>)
+
+/*
+  S1 Pre-Shared Key with DHE
+  --------------------------
+  
+  The server receives the client hello messages and is
+  happy to proceed with PSK mode with DHE.
+
+  Server generates response, which just includes ServerHello,
+  ServerKeyShare,  Extensions and the finished message.
+
+  Since they are in PSK mode, no authentication is used, and cached 
+  ServerConfigs are not generated.
+
+  Variables:
+    ~tid, ~ns   - the server's nonce, tied to the thread id
+    ga = 'g'^a  - the client DH share.
+    gb = 'g'^~b - the server DH share.
+    ss, es      - static and ephemeral secrets.
+    messages    - a variable used to accumulate the message transcript
+    hs_hashc    - the handshake hash for the early data key derivation
+    hs_hashs    - the hash for the outgoing server handshake data..
+    fs_hash     - handshake hash for computing secret for HMAC of server Finished
+    config_hash - server configuration hashed for use in 0-RTT handshakes
+    server_fin  - server finished HMAC
+
+    S1_MSGS_1 - ServerHello, ServerKeyShare
+    S1_MSGS_2 - ServerEncryptedExtensions
+
+  Premises:
+    In(...) - client hello, key share messages
+    Fr(~ns)
+    Fr(~b)
+    ServerPSK(...) - pre-shared key information
+
+  Actions:
+    S1_PSK_DHE(tid)
+    Start(...)
+    
+    Running*(...)  - logging of various important variables
+    CommitPSK(...) - the server is commiting to the fact that
+                     a PSK was previously generated legitimately
+
+    Neq(a, 1)
+    DH($S, ~b)
+    DHChal(...)
+
+  Conclusions:
+    St_init(...) - the server state
+    DHExp($S, ~b)
+    Out(....)    - server outgoing messages
+
+  Rule variant:
+    S_1 - accepts regular DHE handshake from client                         (tls13)
+    S_1_KC - accepts 0-RTT handshake from client using semi-static DH share (kc)
+    S_1_KC_RecvAuth - 0-RTT handshake with client authentication            (mutual)
+    S_1_PSK -  PSK handshakes                                               (psk)
+
+*/
+rule S_1_PSK_DHE:
+let
+    // Default S1 values
+    tid = ~ns
+
+    // Client Hello
+    C = $C
+    nc = ~nc
+    pc = $pc
+
+    // Client Key Share
+    ga = 'g'^a
+
+    // Server Hello
+    S  = $S
+    ns = ~ns
+    ps = $ps
+
+    // Server Key Share (in DHE mode)
+    gb = 'g'^~b
+    
+    // Server derives ES
+    // Used in generating keys (see header)
+    ss = rs
+    es = ga^~b
+
+    messages = <C1_MSGS>
+    // hash for incoming messages
+    hs_hashc = ED_HS_HASH
+    
+    messages = <messages,S1_MSGS_1>
+
+    // handshake_hash for outgoing messages
+    hs_hashs = HS_HASH    
+
+    messages = <messages, S1_MSGS_2>
+
+    // Server Finished
+    server_fin_messages = messages
+    fs_hash = HS_HASH
+    server_fin = hmac(FS, 'server_finished', server_fin_messages) 
+
+    hs_messages = messages
+
+in
+    [ In(<C,C1_MSGS, ~psk_id, senc{~data}EDKEYC>)
+    , Fr(~ns)
+    , ServerPSK(S, ~psk_id, C, rs, config_hash, auth_status)
+    , Fr(~b)
+    ]
+  --[ S1_PSK_DHE(tid)
+    , Start(tid, S, 'server')
+    , UseServerPSK(S, C, 'server', <~psk_id, rs>)
+    , RunningNonces(S, C, 'server', <nc, ns>)
+    , RunningSecrets(S, C, 'server', <ss, es>)
+    , RunningTranscript(S, C, 'server', messages)
+
+    , Neq(a, 1)
+    , DH(S, ~b)
+    , DHChal(~b, a, 'g'^~b, ga, ga^~b)
+    ]->
+    [ St_init_PSK(S,1a, INIT_STATE, ss, es, ~psk_id, messages, config_hash, auth_status)
+    , DHExp(S, ~b)
+    , Out(<S,S1_MSGS_1, senc{<S1_MSGS_2>,ServerFinished}HKEYS>)
+    ]
+
+
+
+
+
+
+/* ------- Client phase 2a: Process server messages -------*/
+
+
+/* Server operating in PSK mode, does not send key share */
+pushdef(<!S1_MSGS_1!>, <!ServerHello!>)
+
+/*
+  C2 Pre-Shared Key
+  ----------------
+  
+  Client receives server messages, and recomputes various
+  components.
+
+  Variables:
+    ~tid, ~nc
+    hs_hashs    - the handshake hash at the point where the handshake key
+                  is derived for the incoming messages
+    Y = 'g'^y   - server semi-static DH share, also checked to be 
+                  in the group (potentially a new one).
+    es          - ephemeral secret, equal to ss/rs.
+    messages    - a variable used to accumulate the message transcript
+    fs_hash     - handshake hash used for server finished secret
+    server_fin_messages - messages used in computing server Finished
+    expected_server_fin - expected value of server Finished
+    config_hash - hashed server configuration values for use in O-RTT handshake
+    auth_status  - the current authentication status of the client
+
+  Premises:
+    St_init_PSK(...) - client state from C1_PSK
+    In(...)      - server messages
+
+  Actions:
+    C2_PSK(tid)
+    C_ACTIONS
+    
+    Running*(...)
+    Commit*(...)
+
+    Eq(ServerFinished, ...) - client checks the server Finished.
+
+  Conclusions:
+    St_init(...) - the client state moves to c_2a
+
+  Rule variants:
+    C_2 - follows inital regular handshake                         (tls13)
+    C_2_KC - follows inital KC handshake                           (kc)
+    C_2_PSK_DHE - follows initial PSK handshake, with DHE exchange (psk)
+
+*/
+rule C_2_PSK:
+  let
+    // Default C2 values
+    tid = ~nc
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+
+    // Continuing in straight PSK mode, use es=ss
+    // ss
+    es = ss
+    
+    // Server Hello
+    S = $S
+    ns = ~ns
+    ps = $ps
+
+    // Server Finished
+    // server_fin
+
+   // Hash for incoming messages
+    messages = <prev_messages, S1_MSGS_1>
+    hs_hashs = HS_HASH
+
+    messages = <messages, S1_MSGS_2>
+
+    // Server Finished
+    // server_fin
+    fs_hash = HS_HASH
+    server_fin_messages = messages
+    expected_server_fin = hmac(FS, 'server_finished', server_fin_messages) 
+
+  in
+    [ St_init_PSK(C,1, tid, C, nc, pc, S, ~a, ss, prev_messages, config_hash, auth_status)
+    , In(<S,S1_MSGS_1,senc{<S1_MSGS_2>,ServerFinished}HKEYS>)
+    ]
+  --[ C2_PSK(tid)
+    , C_ACTIONS
+
+    , RunningNonces(C, S, 'client', <nc, ns>)
+    , RunningSecrets(C, S, 'client', <ss, es>)
+    , CommitNonces(C, S, 'client', <nc, ns>)
+    , CommitES(C, S, 'client', es)
+    
+      // Checks the Server Finished message for correctness.
+    , Eq(ServerFinished, expected_server_fin)
+
+    ]->
+    [ St_init(C,2a, INIT_STATE, ss, es, messages, config_hash, auth_status)
+    ]
+
+/*
+The following rule uses DHE
+so the server returns to sending a key share.
+*/
+popdef(<!S1_MSGS_1!>)
+
+/*
+  C2 Pre-Shared Key with DHE
+  --------------------------
+  
+  Client receives server messages, and recomputes various
+  components.
+
+  This is very similar to C2, but ss is generated previously, 
+  and no ServerConfig is generated.
+
+  Variables:
+    ~tid, ~nc
+    ga = 'g'^~a - client DH share
+    gb = 'g'^b  - server DH share checked to be in the group 
+    hs_hashs    - the handshake hash at the point where the handshake key
+                  is derived for the incoming messages
+    ss, es      - static and ephemeral secrets.
+    messages    - a variable used to accumulate the message transcript
+    fs_hash     - handshake hash used for server finished secret
+    server_fin_messages - messages used in computing server Finished
+    expected_server_fin - expected value of server Finished
+    config_hash - hashed server configuration values for use in O-RTT handshake
+    auth_status  - the current authentication status of the client
+
+  Premises:
+    St_init_PSK(...) - client state from C1_PSK
+    In(...)      - server messages
+
+  Actions:
+    C2_PSK_DHE(tid)
+    C_ACTIONS
+    
+    Running*(...) - logging of various important variables
+    Commit*(...)  - client has finished protocol and is committing to using
+                    certain values in further protocols.
+    Neq(b, 1)     - models the client checking that the server key share is 
+                    not g^1. Eliminates all traces where b = 1.
+
+    DHChal(~a, b, 'g'^~a, gb, gb^~a) - action to help resolve awkward DH
+                equations. Explained in detail in the README.
+
+    Eq(ServerFinished, ...) - client checks the server Finished.
+
+  Conclusions:
+    St_init(...) - the client state
+    Out(....)    - client outgoing messages
+
+*/
+rule C_2_PSK_DHE:
+let
+    // Default C2 values
+    tid = ~nc
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+
+    // C2 using DHE (Client Key Share)
+    ga = 'g'^~a
+
+    // ss = rs
+    // es = rs
+    
+    // Server Hello
+    S = $S
+    ns = ~ns
+    ps = $ps 
+
+    // Server Key Share (in DHE mode)
+    gb = 'g'^b
+
+    // ss is known, generate es
+    // ss = rs
+    es = gb^~a
+  
+    // Server Finished
+    // server_fin
+
+   // Hash for incoming messages
+    messages = <prev_messages, S1_MSGS_1>
+    hs_hashs = HS_HASH
+
+    messages = <messages, S1_MSGS_2>
+
+    // Server Finished
+    // server_fin
+    fs_hash = HS_HASH
+    server_fin_messages = messages
+    expected_server_fin = hmac(FS, 'server_finished', server_fin_messages) 
+in
+    [ St_init_PSK(C,1, tid, C, nc, pc, S, ~a, ss, prev_messages, config_hash, auth_status)
+    , In(<S,S1_MSGS_1,senc{<S1_MSGS_2>,ServerFinished}HKEYS>)
+    ]
+  --[ C2_PSK_DHE(tid)
+    , C_ACTIONS
+
+    , RunningNonces(C, S, 'client', <nc, ns>)
+    , RunningSecrets(C, S, 'client', <ss, es>)
+    , CommitNonces(C, S, 'client', <nc, ns>)
+    , CommitES(C, S, 'client', es)
+
+     // Checks the Server Finished message for correctness.
+    , Eq(ServerFinished, expected_server_fin)
+
+    , Neq(b, 1)
+    , DHChal(~a, b, 'g'^~a, gb, gb^~a)
+    ]->
+    [ St_init(C,2a, INIT_STATE, ss, es, messages, config_hash, auth_status)
+    ]
+
+// unset the alternative definitions for any other files
+popdef(<!S1_MSGS_2!>)
+
+// vim: ft=spthy

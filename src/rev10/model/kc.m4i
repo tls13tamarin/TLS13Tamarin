@@ -1,0 +1,395 @@
+/* ------- Client Phase 1: ClientHello -------*/
+/*
+  C1 KC (KnownConfig)
+  ----------------
+  
+  The C1 variant using cached ServerConfiguration information
+  to perform a 0-RTT handshake.
+  
+  Variables:
+    ss  - static secret, generated using server's semi-static DH share
+    Y = 'g'^y - server's semi-static DH share
+    hs_hashc - handshake hash needed to compute early data key
+    messages - handshake transcript
+
+  Premises:
+    Fr(~nc)
+    Fr(~a)
+    Fr(~data) - early data to send
+    KnownConfig(...) - known server configuration as previously stored
+
+  Actions:
+    C1_KC(tid)
+    Start(...)
+
+    Running*(...)
+    Commit*(...)
+
+    SendData(...)
+    EarlyDataKey(...) - logs key used for early data
+
+    Neq(y, 1)
+    DH($C, ~a)
+    DHChal(...)
+  Conclusions:
+    St_init_KC(...) - client state, specific to KC modes, includes config_hash
+                      which is required for computing the handshake hashes
+    DHExp($C, ~a)
+    Out(...) - the client outgoing messages, including the early data
+
+  Rule variants:
+    C_1 - standard ClientHello in the DHE case   (tls13)
+    C_1_PSK - ClientHello using a Pre-Shared Key (psk) 
+
+*/
+rule C_1_KC:
+let
+    // Default C1 values
+    tid = ~nc // set by KnownConfig
+
+    // Models checking that Y is in the group
+    Y = 'g'^y
+
+    // Client Hello
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+    S   = $S
+
+    // Client Key Share
+    ga   = 'g'^~a
+
+    // Set keys from KC
+    ss = Y^~a
+
+    messages = <C1_MSGS>
+    hs_hashc = ED_HS_HASH
+
+in
+    [ Fr(nc)
+    , Fr(~a)
+    , Fr(~data)
+    , KnownConfig(C, S, Y, config_hash)
+    ]
+  --[ C1_KC(tid)
+    , Start(tid, C, 'client')
+
+    , Running(C, S, 'client', nc)
+    , RunningSS(C, S, 'client', ss)
+    , CommitKC(C, S, 'client', <Y, config_hash>)
+    , CommitSS(C, S, 'client', ss)
+
+    , SendData(tid, ~data)
+    , EarlyDataKey(C, S, 'client', EDKEYC)
+
+    , Neq(y, 1)
+    , DH(C, ~a)
+    , DHChal(~a, y, 'g'^~a, Y, Y^~a)
+    ]->
+    [ St_init_KC(C,1, tid, C, nc, pc, S, ~a, ss, messages, config_hash, 'no_auth')
+    , DHExp(C, ~a)
+    , Out(<C,C1_MSGS, senc{~data}EDKEYC>)
+    ]
+
+
+
+
+/* ------- Server phase 1a: Receive ClientHello + Send ServerHello -------*/
+/*
+  S1 Known Config
+  ----------------
+  
+  The server receives the client hello messages and is
+  happy to proceed using the known configuration indicated
+  by the client.
+
+  Server generates response, including signature and finished 
+  message, and also computes the static and ephemeral 
+  secrets.
+
+  Note that the server requires both the semi-static share
+  through the ServerDH fact (to make sure it hasn't expired), 
+  and the ServerConfig fact, which contains the configuration
+  hash the client uses.
+
+  Variables:
+    ~tid, ~ns   - the server's nonce, tied to the thread id
+    ga = 'g'^a  - client DH share checked to be in the group
+    gb = 'g'^~b - server DH share
+    Y = 'g'^~y2 - server semi-static DH share, as generated earlier
+    ss, es      - static and ephemeral secrets. Used in key derivation
+                  functions (defined in the header).
+    messages    - a variable used to accumulate the message transcript
+    hs_hashs    - handshake hash used for computing key for outgoing messages
+    s_signature_messages - messages to be signed by server
+    s_signature - server signature
+    fs_hash     - handshake hash for computing secret for HMAC of server Finished
+    config_hash - server configuration hashed for use in 0-RTT handshakes
+
+    C1_MGSS_1 - ClientHello, ClientKeyShare
+    S1_MSGS_1 - ServerHello, ServerKeyShare
+    S1_MSGS_2 - ServerEncryptedExtensions, ServerConfiguration, 
+                ServerCertificate, (ServerCertificateRequest)
+    S1_MSGS_3 - ServerCertificateVerify
+
+    
+    S1_MSGS_1 - ServerHello, ServerKeyShare
+    S1_MSGS_2 - ServerEncryptedExtensions, ServerConfiguration, 
+                ServerCertificate, (ServerCertificateRequest)
+    S1_MSGS_3 - ServerCertificateVerify
+    
+  Premises:
+    In(...) - client hello, key share messages and early data
+    ServerDH(S, ~y2) - (possibly) new semi-static DH share to give to client
+  , !Ltk(S, ~ltkS)
+    Fr(~ns)
+    Fr(~b)
+  , ServerDH(S, ~y) - semi-static DH share used by the client
+  , ServerConfig(S, ~y, config_hash) - configuration matching semi-static DH share
+
+  Actions:
+    S1_KC(tid)
+    Start(tid, $S, 'server') - as for the client, used to track the start
+                of the thread, running as server for identity $S
+    
+    UseLtk(S, ~ltkS) - server used long-term key of S
+    SignData(S, s_signature_messages) - server computed signature over these messages
+    Running*(...) - logging of various important variables
+    Neq(a, 1) - models the server checking that the client key share is 
+                not g^1. Eliminates all traces where a = 1.
+    DH(S, ~b)
+    DHChal(...)
+
+  Conclusions:
+    St_init(...) - the server state
+    ServerConfig(..) - stores the ServerConfig for use later. The config_hash
+                   is needed later.
+    DHExp(S, ~b)
+    Out(....)    - server outgoing messages
+  
+  Rule variants:
+    S_1 - accepts regular DHE handshake from client               (tls13)
+    S_1_KC_RecvAuth - 0-RTT handshake with client authentication  (mutual)
+    S_1_PSK - uses a previously established PSK                   (psk)
+    S_1_PSK_DHE -  PSK handshake with DHE exchange                (psk)
+*/
+rule S_1_KC:
+let
+    // Default S1 values
+    tid = ~ns
+
+    // Client Hello
+    C = $C
+    nc = ~nc
+    pc = $pc
+    ga = 'g'^a
+
+
+    // Server Hello
+    S  = $S
+    ns = ~ns
+    ps = $ps
+    gb = 'g'^~b
+
+    // Server Configuration
+    Y = 'g'^~y2
+
+    ss = ga^~y
+    es = ga^~b
+
+    messages = <C1_MSGS>
+
+    // hash for incoming messages
+    hs_hashc = ED_HS_HASH
+
+    messages = <messages,S1_MSGS_1>
+
+
+    // handshake_hash for outgoing messages
+    hs_hashs = HS_HASH    
+
+    // Server Certificate Verify
+    messages = <messages, S1_MSGS_2>
+    
+    s_signature_messages = <messages, 'server_cert_verify'>
+    s_signature = sign{s_signature_messages}~ltkS
+
+    messages = <messages, S1_MSGS_3>
+    
+    // Server Finished
+    server_fin_messages = messages
+    fs_hash = HS_HASH
+    server_fin = hmac(FS, 'server_finished', server_fin_messages) 
+
+    // Server needs to cache for later
+    new_config_hash = h(ServerConfiguration,CertificateRequest,ServerCertificate)
+
+in
+    [ In(<C,C1_MSGS, senc{~data}EDKEYC>)
+    , ServerDH(S, ~y2)
+    , !Ltk(S, ~ltkS)
+    , Fr(ns)
+    , Fr(~b)
+    , ServerDH(S, ~y)
+    , ServerConfig(S, ~y, config_hash)
+    ]
+  --[ S1_KC(tid)
+    , Start(tid, S, 'server')
+    , UseLtk(S, ~ltkS)
+    , SignData(S, s_signature_messages)
+    , UseServerConfig(S, ~y, config_hash)
+    , RunningNonces(S, C, 'server', <nc, ns>)
+    , RunningSecrets(S, C, 'server', <ss, es>)
+    , RunningTranscript(S, C, 'server', messages)
+    , RunningKC(S, C, 'server', <Y, new_config_hash>)
+
+    , Neq(a, 1)
+    , DH(S, ~b)
+    , DHChal(~y, a, 'g'^~y, ga, ga^~y)
+    , DHChal(~b, a, 'g'^~b, ga, ga^~b)
+    ]->
+    [ St_init(S,1a, INIT_STATE, ss, es, messages, new_config_hash, 'no_auth')
+    , DHExp(S, ~b)
+    , ServerConfig(S, ~y, new_config_hash)
+    , Out(<S,S1_MSGS_1, senc{<S1_MSGS_2, S1_MSGS_3>,ServerFinished}HKEYS>)
+    ]
+
+
+/* ------- Client phase 2a: Process server messages -------*/
+/*
+  C2 Known Config
+  ----------------
+  
+  Client receives server messages, and recomputes various
+  components.
+
+  Variables:
+    ~tid, ~nc
+    ga = 'g'^~a - client DH share
+    gb = 'g'^b  - server DH share checked to be in the group 
+    hs_hash[sc] - the handshake hash for the key derivation for incoming/outgoing messages
+    Y = 'g'^y   - server semi-static DH share, also checked to be 
+                  in the group
+    ss, es      - static and ephemeral secrets.
+    prev_messages - handshake transcript continued from previous state
+    messages    - current handshake transcript
+    s_signature_messages - the messages to verify in the server signature.
+    fs_hash     - handshake hash used for server finished secret
+    server_fin_messages - messages used in computing server Finished
+    expected_server_fin - expected value of server Finished
+    config_hash - hashed server configuration values for use in O-RTT handshake
+    auth_status  - the current authentication status of the client
+
+  Premises:
+    St_init_KC(...) - client state from C1_KC
+    !Pk(S, pk(~ltkS)) - abstraction of CA, client receives server public key
+    In(...)      - server messages
+
+  Actions:
+    C2_KC(tid)
+    C_ACTIONS
+    
+    Running*(...) - logging of various important variables
+    Commit*(...)  - client has finished protocol and is committing to using
+                    certain values.
+
+    Eq(verify(...),...) -  client checks the server signature
+    Eq(ServerFinished, ...) - client checks the server Finished.
+
+    Neq(b, 1)     - models the client checking that the server key share is 
+                    not g^1. Eliminates all traces where b = 1.
+    Neq(y, 1)     - as above for semi-static key.
+    DHChal(...) - action to help resolve awkward DH equations.
+                  Explained in more detail in the README.
+  Conclusions:
+    St_init(...) - the client state (continues to C3[_NST] from here)
+    KnownConfig(..) - stores the server configuration for a known config
+                      handshake
+
+  Rule variants:
+    C_2 - follows inital regular handshake                         (tls13)
+    C_2_PSK - follows initial PSK handshake                        (psk)
+    C_2_PSK_DHE - follows initial PSK handshake, with DHE exchange (psk)
+*/
+rule C_2_KC:
+  let
+    // Default C2 values
+    tid = ~nc
+    C   = $C
+    nc  = ~nc
+    pc  = $pc
+
+    ga = 'g'^~a
+    
+    // Server Hello
+    S = $S
+    ns = ~ns
+    ps = $ps
+
+    // Server KeyShare
+    gb = 'g'^b
+
+    // Server Finished
+    // server_fin
+    
+    // secrets
+    // ss
+
+     // Hash for incoming messages
+    messages = <prev_messages, S1_MSGS_1>
+    hs_hashs = HS_HASH
+    
+    // Server Configuration
+    Y = 'g'^y
+
+    messages = <messages, S1_MSGS_2>
+
+    // Server Certificate Verify
+    s_signature_messages = <messages, 'server_cert_verify'>
+
+    // This would be the implicit verification method
+    // s_signature = sign{signature_messages}~ltkS
+
+    // Generate es for key derivation
+    es = gb^~a
+
+    messages = <messages, S1_MSGS_3>
+
+    fs_hash = HS_HASH
+    server_fin_messages = messages
+    expected_server_fin = hmac(FS, 'server_finished', server_fin_messages) 
+
+    // Server Finished
+    // server_fin
+    
+    // If client wants to use known config later
+    new_config_hash = h(ServerConfiguration,CertificateRequest,ServerCertificate)
+
+  in
+    [ St_init_KC(C,1, tid, C, nc, pc, S, ~a, ss, prev_messages, config_hash, auth_status)
+    , !Pk(S, pk(~ltkS))
+    , In(<S,S1_MSGS_1,senc{<S1_MSGS_2,S1_MSGS_3>,ServerFinished}HKEYS>)
+    ]
+  --[ C2_KC(tid)
+    , C_ACTIONS
+    , UsePK(S, pk(~ltkS))
+
+    , RunningNonces(C, S, 'client', <nc, ns>)
+    , RunningSecrets(C, S, 'client', <ss, es>)
+    , CommitNonces(C, S, 'client', <nc, ns>)
+    , CommitES(C, S, 'client', es)
+
+      // This gives us explicit verification of the certificates.
+    , Eq(verify(s_signature, s_signature_messages, pk(~ltkS)), true)
+      // Checks the ServerFinished message for correctness.
+    , Eq(ServerFinished, expected_server_fin)
+
+    , Neq(b, 1)
+    , Neq(y, 1)
+    , DHChal(~a, b, 'g'^~a, gb, gb^~a)
+    ]->
+    [ St_init(C,2a, INIT_STATE, ss, es, messages, new_config_hash, auth_status)
+    , KnownConfig(C, S, Y, new_config_hash)
+    ]
+
+// vim: ft=spthy
