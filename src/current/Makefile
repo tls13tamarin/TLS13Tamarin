@@ -16,16 +16,11 @@ all:
 	$(MAKE) -C lemmas
 	$(MAKE) -C tests
 	$(MAKE) -C attack
-	$(MAKE) $(M4)
 
 clean:
 	$(MAKE) clean -C lemmas
 	$(MAKE) clean -C tests
 	$(MAKE) clean -C attack
-	rm -f $(M4)
-
-%.spthy: %.m4 $(DEPS)
-	m4 $(FLAGS) -I lemmas/ -I . -I model/  $< > $@
 
 test:
 	# Warning: this may take a while to run, consuming a lot of resources.
