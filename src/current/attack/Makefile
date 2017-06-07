@@ -9,7 +9,7 @@ all: $(M4)
 	# Strip extra new lines introduced by M4 macros
 	perl -0777pi -e 's/\n{3,}/\n\n/g' $@
 	# Replace "prev_" with "p_" to save space...
-	#sed -i 's/prev_/p_/g' $@
+	#perl -0777pi -e 's/prev_/p_/g' $@
 
 
 clean:
