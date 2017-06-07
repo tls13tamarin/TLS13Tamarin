@@ -1,0 +1,42 @@
+
+/* ------- Public key infrastructure -------*/
+
+/*
+  Register PK
+  ----------------
+  
+  Generates a long-term key for a party.
+
+  Premises:
+    Fr(~ltkA) - a fresh value for the key itself
+
+  Actions:
+    GenLtk($A, ~ltkA) - party $A has generated a long-term key
+
+  Conclusions:
+    !Ltk($A, ~ltkA) - binds the long-term key to the party $A
+    !Pk($A, pk(~ltkA)) - models the distribution of the public key by some PKI
+    Out(pk(~ltkA)) - outputs the public key so the adversary has knowledge
+*/
+rule Register_pk:
+  [ Fr(~ltkA) ]--[ GenLtk($A, ~ltkA), HonestUse(~ltkA)
+  ]->
+  [ !Ltk($A, ~ltkA), !Pk($A, pk(~ltkA)), Out(pk(~ltkA)) ]
+
+/*
+  Reveal Ltk
+  ----------------
+  
+  The adversarial capability to reveal long-term keys of parties.
+
+  Premises:
+    !Ltk($A, ~ltkA) - the long-term key to compromise
+
+  Actions:
+    RevLtk($A) - adversary has revealed the key of $A.
+
+  Conclusions:
+    Out(~ltkA) - provides the adversary with the long-term key
+*/
+rule Reveal_Ltk:
+  [ !Ltk($A, ~ltkA) ] --[ RevLtk($A) ]-> [ Out(~ltkA) ]
