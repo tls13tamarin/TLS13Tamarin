@@ -3,7 +3,9 @@
 Welcome to the TLS 1.3 Tamarin model. This README contains some basic
 information on navigating the source code.
 
-This is a work-in-progress branch which has diverged significantly from master.
+This README is not entirely up to date. Better modelling details can be found
+at https://samscott89.github.io/TLS13_Tamarin/
+
 Sections marked with a :warning: are out of date.
 
 
