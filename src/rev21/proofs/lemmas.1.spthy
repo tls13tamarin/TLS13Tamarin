@@ -2944,28 +2944,6 @@ guarded formula characterizing all counter-examples:
 */
 by sorry
 
-lemma rms_derives_hs [reuse, hide_lemma=sig_origin]:
-  all-traces
-  "∀ tid actor role peer hs rms messages #i #j #k.
-    (((RRMS( tid, actor, role, <peer, rms, messages> ) @ #j) ∧
-      (CHS( tid, actor, role, hs ) @ #i)) ∧
-     (!KU( rms ) @ #k)) ⇒
-    (((∃ ms #l. ((ms = Extract('0', hs)) ∧ (!KU( hs ) @ #l)) ∧ (#l < #k)) ∨
-      (∃ #l. (RevealPSK( actor, rms ) @ #l) ∧ (#l < #k))) ∨
-     (∃ #l. (RevealPSK( peer, rms ) @ #l) ∧ (#l < #k)))"
-/*
-guarded formula characterizing all counter-examples:
-"∃ tid actor role peer hs rms messages #i #j #k.
-  (RRMS( tid, actor, role, <peer, rms, messages> ) @ #j) ∧
-  (CHS( tid, actor, role, hs ) @ #i) ∧
-  (!KU( rms ) @ #k)
- ∧
-  (∀ ms #l. (ms = Extract('0', hs)) ∧ (!KU( hs ) @ #l) ⇒ ¬(#l < #k)) ∧
-  (∀ #l. (RevealPSK( actor, rms ) @ #l) ⇒ ¬(#l < #k)) ∧
-  (∀ #l. (RevealPSK( peer, rms ) @ #l) ⇒ ¬(#l < #k))"
-*/
-by sorry
-
 lemma sig_origin [reuse]:
   all-traces
   "∀ certificate certificate_request_context signature verify_data hs_key

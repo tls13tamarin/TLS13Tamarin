@@ -1,7 +1,7 @@
 # TLS13Tamarin
 This is a Tamarin model of TLS 1.3
 
-The most recent code is included in [src/current](src/current), however we provide previous
+The most recent code is included in [src/rev21](src/rev21), however we provide previous
 versions for reference.
 
 For a detailed comparison between the specification and our model, please see:

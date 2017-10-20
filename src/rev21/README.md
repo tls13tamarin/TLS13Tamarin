@@ -6,19 +6,6 @@ information on navigating the source code.
 This is a work-in-progress branch which has diverged significantly from master.
 Sections marked with a :warning: are out of date.
 
-The main folders are:
- - [attack](attack/) contains the attack trace generated when investigating the 
-mutual-authentication mismatch property.
- - [model](model/) which contains the Tamarin model files (as described below)
- - [lemmas](lemmas/) contains our lemma specifications.
- - [proofs](proofs/) is the target directory for the aforementioned proofs.
- - [tests](tests/) contains some basic reachability tests to verify all states are
-reachable and works as a sanity check of the model. 
-
-The proofs directory already contains a number of proof files. These are proofs
-which have been completed by interacting with the Tamarin and can be verified
-using `tamarin-prover proofs/target-proof.spthy`.
-
 
 ## TLS Model
 

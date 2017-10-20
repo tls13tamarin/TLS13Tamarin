@@ -1,6 +1,3 @@
-DEPS= $(wildcard *.m4i)
-M4= $(patsubst %.m4,%.spthy,$(wildcard *.m4))
-
 # Enables simpler model
 # export FLAGS=-D SIMPLE_MODEL
 export FLAGS=-D COMPACT_LABELS

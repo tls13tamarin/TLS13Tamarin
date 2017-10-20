@@ -321,6 +321,7 @@ lemma_ku_fresh_psk/* [reuse]:
       FreshPSK(ticket,res_psk)@i & KU(res_psk)@k ==> 
         Ex actor #j. 
           RevealPSK(actor, res_psk)@j & #j < #k"
+*/
 
 lemma_session_key_agreement/*:
   "All tid tid2 actor peer nonces kr kr2 kw kw2 as as2 #i #j #k #l.

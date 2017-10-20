@@ -4,8 +4,8 @@ section{* TLS 1.3 *}
 
 /*
  * Protocol:    TLS 1.3 Handshake and Record Protocols
- * Modeler:     Cas Cremers, Marko Horvat, Jonathan Hoyland, Sam Scott, Thyla van der Merwe
- * Year:        2017
+ * Modeler:     Cas Cremers, Marko Horvat, Sam Scott, Thyla van der Merwe
+ * Year:        2016
  * Source:      http://tlswg.github.io/tls13-spec/
  *
  * Status:  in progress....
