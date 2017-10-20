@@ -3,11 +3,8 @@
 Welcome to the TLS 1.3 Tamarin model. This README contains some basic
 information on navigating the source code.
 
-This README is not entirely up to date. Better modelling details can be found
-at https://samscott89.github.io/TLS13_Tamarin/
-
-Sections marked with a :warning: are out of date.
-
+In-depth modelling details can be found
+at https://samscott89.github.io/TLS13_Tamarin/.
 
 ## TLS Model
 
@@ -142,17 +139,6 @@ Each function declaration will automatically generate an adversary rule to
 allow the adversary to compute the same function, i.e., all functions
 essentially act as random oracles.
 
-### Model rules :warning:
-
-*To be updated*
-
-A diagram of the state machine reflecting the model can be found in
-[tls-13-state-machines.pdf](../paper/pic/tls-13-state-machines.pdf). There,
-arcs represent state transitions, captured by Tamarin rules, and nodes
-represent states, modelled by state facts of the form St_init_\* in Tamarin.
-
-More fine-grained information about the rules can be found in the source files.
-
 #### Public key infrastructure
 
 The public key infrastructure is modelled by an infallible entity which
@@ -268,58 +254,6 @@ For example, data might be cryptographic material such as a shared secret, or
 randomness. Ideally, we would expect that for each `Running(A, B, role, data)` there
 wound be a corresponding `Commit(B, A, role2, data)` to pair with it.
 
-##### DHChal actions
-
-In the 'weak' security notion (defined in
-[Security Properties](../Security Properties.md)), we wish to establish
-the secrecy of shared secrets even when the server does
-not authenticate the client.
-
-In this scenario, the adversary can attempt to man in the middle the
-connection by finding X and Y such that X^a = Y^b (a,b are the client and
-server DH shares respectively).
-
-The usual solution to this is X = g^b and Y = g^a.
-
-However, the Tamarin tool does not immediately know how to solve this. Therefore we
-have introduced the DHChal action which pulls out the components of this
-problem.
-
-Furthermore, we have the dh_chal lemma which says that if the adversary can
-find such a solution, then he knows either a or b.
-
-Thus it is clear that the adversary can only perform such a man-in-the-middle
-attack if he can reveal a DH exponent.
-
-#### Typing
-
-Issues: 'g'^a etc. [TODO: Expand this section.]
-
-
-#### Commenting conventions :warning:
-
-Variables in the 'let' statement are generally grouped by message type.
-For example:
-```cpp
-// ClientHello
-    C   = $C
-    nc  = ~nc
-    pc  = $pc
-    S   = $S
-```
-The comment helps understand where the variables may be indirectly used by a
-macro name. In the previous example, `C1_MSGS` message would automatically
-assume that C, nc, pc and S were already defined.
-
-Furthermore, variables which are used in this way but are already defined
-correctly are listed but commented out:
-```cpp
-// ServerFinished
-// server_fin
-```
-Here, `server_fin` is used as a un-typed variable in the code and is already
-in the correct form.
-
 ### Macro usage
 
 We are currently using m4 as a preprocessor, for easy aliasing, and other
@@ -351,14 +285,6 @@ processed by m4 and then Tamarin.
 
 Included files have the extension '.m4i' to indicate they might use m4 macros
 but are not meant to be processed by m4 directly.
-
-#### Flags :warning:
-
-Current flags which can be passed to m4 for different options as `m4 -D FLAG`
-
-`MUTUAL_AUTH` - enable mutual authentication (client certificates).
-
-These should be set in the Makefile.
 
 ## TLS Lemmas
 
@@ -409,76 +335,3 @@ lemma secret_session_keys:
 
 Axioms restrict the set of considered traces. The intended goal of each axiom
 is expressed in a comment associated with each axiom.
-
-### Basic Tests :warning:
-
-The collection of 'basic test' lemmas in [basic_tests.m4i](basic_tests.m4i) have the intended
-purpose of verifying the operational correctness of the model, i.e., the
-lemmas ensure that all model states are reachable. For instance, the following
-lemma ensures that it is possible for a session ticket to be sent by a server
-and to be subsequently recieved by a client.  
-
-```cpp
-lemma gen_nst:
-  exists-trace
-  "/* There is a client (thread) and a server (thread) */
-    Ex tidA tidB #i #j #k.
-        /* such that the client initiated a handshake, the server
-           generated a session ticket as part of the handshake
-           and the client received this session ticket. */
-        C1(tidA)@i & S3_NST(tidB)@j & C3_NST(tidA)@k
-        & #i < #j & #j < #k"
-```
-
-### Auxiliary Lemmas :warning:
-
-The auxiliary lemmas in [lemmas](/lemmas) exist as a means to aid the proving of the main
-TLS security properties. For instance, the following lemma ensures that tids are
-unique.
-
-```cpp
-lemma one_start_per_tid [use_induction, reuse]:
-  "/* For all tids actors and roles   */
-  All tid actor actor2 role role2 #i #j.
-       /* if a tid starts     */
-       Start(tid, actor, role)@i & Start(tid, actor2, role2)@j
-       /* then there this only one start action that can use this tid. */
-        ==>#i=#j"
-```
-
-The `use_induction` flag indicates to the Tamarin tool that it use induction as its
-method of proof and the `reuse` flag indicates that this result may be used in the
-proving of all other lemmas going forward. In other words, the lemma is assumed to
-hold going forward. Note that this is true regardless of whether or not there exits
-a proof for the lemma. ~~We note that all of the lemmas in [lemmas](/lemmas) are autoprovable~~.
-
-The intended goal of each lemma is expressed in a comment associated with each lemma.
-
-### Secrecy Lemmas :warning:
-
-The collection of lemmas in [secrets.m4](secrets.m4) pertain to the secrecy of the ephemeral
-secret (es) and the statit secret (ss) as derived in the TLS handshake. These lemmas
-are also auxiliary in nature, i.e., they aid the proving of the main TLS properties.
-For a more detail on secrecy properties captured see [Security Properties](../Security Properties.md).
-
-The intended goal of each lemma is expressed in a comment associated with each lemma.
-
-### Property Lemmas :warning:
-
-The lemmas in [properties.m4](properties.m4) encapsulate the major security goals of TLS 1.3. These include
-
-* confidentiality of session keys,
-* confidentiality of early data keys,
-* forward secrecy of session keys (excluding early data keys),
-* uniqueness of session keys,
-* unilateral authentication (of the server),
-* mutual authentication (in the event that client authentication is required), and,
-* integrity of handshake messages.
-
-We note that the mutual authentication property is currently not addressed as the mechanism for client authentication in TLS 1.3 still needs to be finalized. For further comment on these properties see [Properties](../paper/Properties_to_do.pdf).
-
-The intended goal of each lemma is expressed in a comment associated with each lemma.
-
-### Proof Compilation
-
-Please see [INSTALL.md](INSTALL.md) for instructions on how to create the relevant .spthy files and access the lemma proofs. 
