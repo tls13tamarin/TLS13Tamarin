@@ -1,0 +1,42 @@
+dnl Generic sequence
+dnl m4_sequence(start,end,prefix,postfix,separator)
+define(<!m4_sequence!>, <!ifelse(eval($1 < $2),
+1, <!$3$1$4$5<!!>m4_sequence(incr($1),<!$2!>,<!$3!>,<!$4!>,<!$5!>)!>, <!$3$1$4!>)!>)dnl
+dnl
+dnl Generic block
+dnl m4_AMO_block(start,end,factArity,pre,mid,post,cnt)
+dnl if cnt is non-empty, add counter and then (if cnt != '') counter
+dnl and cnt.
+define(<!m4_AMO_block!>, <!ifelse(eval($1 <= $2),
+1,
+<!$4<!!>m4_sequence(1,<!$3!>,<!a<!!>$1<!!>v!>,<!!>,<!$5!>)$6<!!>ifelse($7,,,$1<!!>$7)<!!> 
+      m4_AMO_block(incr($1),<!$2!>,<!$3!>,<!$4!>,<!$5!>,<!$6!>,<!$7!>)!>, <!!>)!>)dnl
+dnl
+dnl Generate timepoint order
+dnl m4_AMO_ordertime(start,end)
+define(<!m4_AMO_ordertime!>, <!ifelse(eval($1 < decr($2)),
+1, <!#i$1 < #i<!!>incr($1) & <!!>m4_AMO_ordertime(incr($1),<!$2!>)!>, <!#i$1 < #i<!!>incr($1)!>)!>)dnl
+dnl
+dnl The axiom generator
+dnl at_most_of(maxOccurrence,factName,factArity)
+define(at_most_of,<!
+ifelse($1,0,<!
+axiom at_most_0_of_$2:
+"All #i m4_AMO_block(1,<!incr($1)!>,<!$3!>,,<! !>).
+    m4_AMO_block(1,1,<!$3!>,<!$2(!>,<!,!>,<!)@#i!>,<!!>)
+    ==> F"
+!>,<!
+ifelse($1,1,<!
+axiom At_most_1_of_$2:
+"All #i1 #i2 m4_AMO_block(1,<!incr($1)!>,<!$3!>,,<! !>).
+	m4_AMO_block(1,1,<!$3!>,<!$2(!>,<!,!>,<!)@#i1!>,<!!>) & 
+	m4_AMO_block(2,2,<!$3!>,<!$2(!>,<!,!>,<!)@#i2!>,<!!>)
+	 ==> #i1 = #i2"
+!>,<!
+axiom At_most_$1_of_$2:
+"not (Ex m4_sequence(1,<!incr($1)!>,#i,<! !>) 
+      m4_AMO_block(1,<!incr($1)!>,<!$3!>,,<! !>).
+      m4_AMO_block(1,<!incr($1)!>,<!$3!>,<!$2(!>,<!,!>,<!)@#i!>,<! &!>)m4_AMO_ordertime(1,<!incr($1)!>,<!$3!>)
+     )"
+!>)!>)!>)
+

@@ -1,0 +1,144 @@
+dnl(
+/*
+    The client/server state is modelled as being a large struct of values, 
+    initialised to the string '0' (in absense of a null value).
+
+    By using PrevClientState -> set_state() -> ClientState (and equivalent
+    server macros) this large state is carried forwards for rule premises
+    and conclusions.
+
+    Ensure that set_state() is at the top of the 'let' block, so that any
+    updated values can be safely redefined afterwards.
+*/)
+
+
+// state.m4i imports
+
+dnl(
+/*
+    This defines the structure of the client's state that we expect.
+    All values must be defined, but any non-initialised values can be set to '0'
+*/)
+define(<!TLSState!>, <! dnl
+res_psk, dnl resumption PSK
+messages, dnl message transcript
+nc, dnl client nonce
+ns, dnl server nonce
+g, dnl chosen DH group
+sg, dnl supported DH groups
+hrr, dnl tracks whether HRR has been sent 
+x, dnl client private DH key
+y, dnl server private DH key
+gx, dnl client DH share
+gy, dnl server DH share
+gxy, dnl derived DH value
+psk_ke_mode, dnl psk key exchange mode
+psk_id, dnl psk identity/ticket
+edi, dnl early data indication
+es, dnl early secret
+hs, dnl handshake secret
+ms, dnl master secret
+cats, dnl client application traffic secret
+sats, dnl server application traffic secret
+hs_keyc, dnl client handshake key
+hs_keys, dnl server handshake key
+auth_status, dnl peer's authentication status
+ems, dnl exporter master secret
+rms, dnl resumption master secret
+cert_req dnl certificate request flag
+!>)
+
+
+define(<!init_state!>, <! dnl
+messages = '0'
+res_psk = '0'
+nc = '0'
+ns = '0'
+g = '0'
+sg = '0'
+hrr = '0'
+x = '0'
+y = '0'
+gx = '0'
+gy = '0'
+gxy = '0'
+psk_ke_mode = 'na'
+psk_id = '0'
+edi = '0'
+es = '0'
+hs = '0'
+ms = '0'
+cats = '0'
+sats = '0'
+hs_keyc = '0'
+hs_keys = '0'
+auth_status = <'0', '0'>
+ems = '0'
+rms = '0'
+cert_req = '0'
+!>)
+
+define(<!PrevState!>, <! dnl
+prev_res_psk, dnl
+prev_messages, dnl
+prev_nc, dnl
+prev_ns, dnl
+prev_g, dnl
+prev_sg, dnl
+prev_hrr, dnl
+prev_x, dnl
+prev_y, dnl
+prev_gx, dnl
+prev_gy, dnl
+prev_gxy, dnl
+prev_psk_ke_mode, dnl
+prev_psk_id, dnl
+prev_edi, dnl
+prev_es, dnl
+prev_hs, dnl
+prev_ms, dnl
+prev_cats, dnl
+prev_sats, dnl
+prev_hs_keyc, dnl
+prev_hs_keys, dnl
+prev_auth_status, dnl
+prev_ems, dnl
+prev_rms, dnl
+prev_cert_req dnl
+!>)
+
+
+define(<!set_state!>, <!
+res_psk = prev_res_psk
+nc = prev_nc
+ns = prev_ns
+g = prev_g
+sg = prev_sg
+x = prev_x
+y = prev_y
+gx = prev_gx
+gy = prev_gy
+gxy = prev_gxy
+hrr = prev_hrr
+psk_ke_mode = prev_psk_ke_mode
+psk_id = prev_psk_id
+edi = prev_edi
+es = prev_es
+hs = prev_hs
+ms = prev_ms
+cats = prev_cats
+sats = prev_sats
+hs_keyc = prev_hs_keyc
+hs_keys = prev_hs_keys
+auth_status = prev_auth_status
+messages = prev_messages
+ems = prev_ems
+rms = prev_rms
+cert_req = prev_cert_req
+tid = ~tid
+!>)
+
+define(<!ClientState!>, <!TLSState!>)
+define(<!ServerState!>, <!TLSState!>)
+define(<!PrevClientState!>, <!PrevState!>)
+define(<!PrevServerState!>, <!PrevState!>)

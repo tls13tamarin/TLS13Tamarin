@@ -1,0 +1,188 @@
+dnl Extensions definitions for ClientHello with PSK
+define(<!ClientHelloExtensions!>, <!< dnl
+  SupportedVersions, dnl
+  NamedGroupList, dnl
+  KeyShareCH, dnl
+  PskKeyExchangeModes, dnl
+  EarlyDataIndication, dnl
+  PreSharedKeyExtensionCH dnl
+>!>)
+rule recv_client_hello_psk:
+let
+    set_state()
+    nc = new_nc
+    g1 = $g1
+    g2 = $g2
+    client_sg = <g1, g2>
+    nc = new_nc
+    gx = new_gx
+    g = $new_g
+    gx = g^new_x
+
+    ticket_age_add = ~ticket_age_add
+    ticket = ~ticket
+    res_psk = psk_res_psk
+    auth_status = psk_auth_status
+    identities = <<ticket, obfuscated_ticket_age>>
+    ticket_age = unmask(obfuscated_ticket_age, ticket_age_add)
+    psk_id = ticket
+    psk_ke_mode = <psk_ke, psk_dhe_ke> dnl <'0', '1'>
+    edi = new_edi
+
+    // Abstract client identity - does not currently correspond to 
+    // anything concrete 
+    // From the server's perspective: associate with an open socket.
+    C = $C
+
+    // Server identity - can be interpreted as the hostname
+    S = $S
+
+    // Server nonce
+    ns = ~ns
+
+    es = EarlySecret
+
+
+    tmp_binder = binder
+    binder = '0'
+    binder_messages = <messages, ClientHello>
+    binder_check = compute_binder()
+    binder = tmp_binder
+    messages = <messages, ClientHello>
+
+    ead_keyc = keygen(early_traffic_secret(client), early_app_key_label())
+in
+    [ State(S0, tid, S, C, PrevServerState),
+      In(ClientHello),
+      Fr(ns),
+      !ServerPSK(S, C, psk_res_psk, psk_auth_status, NewSessionTicket, psk_type)
+    ]
+  --[ S0_PSK(tid),
+      Neq(g1, g2),
+      Eq(unmask(obfuscated_ticket_age, ticket_age_add), '1'),
+      Eq(binder_check, binder),
+      running_server(PSK, C, psk_res_psk, psk_auth_status),
+      Neq(psk_res_psk, '0')
+    ]->
+    [
+      State(S1, tid, S, C, ServerState),
+      EarlyRecvStream(tid, S, C, auth_status, ead_keyc, edi)
+    ]
+/*
+    Server sends ServerHello for PSK DHE mode
+*/
+dnl Extensions definitions for PSK ServerHello
+define(<!ServerHelloExtensions!>, <!< dnl
+  SignatureSchemeList, dnl
+  KeyShareSH, dnl
+  PreSharedKeyExtensionSH, dnl
+  EarlyDataIndication dnl
+>!>)
+rule server_hello_psk_dhe:
+let
+    prev_g = $g
+    prev_gx = prev_g^some_x
+    prev_psk_ke_mode = <psk_ke, psk_dhe_ke> dnl <'0', '1'>
+    prev_ns = ~ns
+    prev_psk_id = ~ticket
+
+    set_state()
+
+    psk_ke_mode = psk_dhe_ke
+
+    C = $C
+    S = $S
+
+    // Group, DH exponent, key share
+    y = ~y
+    gy = g^y
+    gxy = gx^y
+
+    identity = psk_id
+
+    es = EarlySecret
+
+    messages = <messages, ServerHello>
+in
+    [ State(S1, tid, S, C, PrevServerState),
+      Fr(y)
+    ]
+  --[ S1_PSK_DHE(tid),
+      Neq(gx, g),
+      Neq(x, inv(y)),
+      Instance(tid, S, 'server'),
+      DHChal(g, some_x, y, gx, gy, gxy),
+      running_server(Nonces, nc, ns),
+      DH(tid, S, y)
+    ]->
+    [
+      State(S2a, tid, S, C, ServerState),
+      DHExp(y, tid, S),
+      Out(ServerHello)
+    ]
+define(<!ServerHelloExtensions!>, <!< dnl
+  SignatureSchemeList, dnl
+  PreSharedKeyExtensionSH, dnl
+  EarlyDataIndication dnl
+>!>)
+rule server_hello_psk:
+let
+    prev_psk_ke_mode = <psk_ke, psk_dhe_ke>
+    prev_ns = ~ns
+    prev_psk_id = ~ticket
+
+    set_state()
+
+    psk_ke_mode = psk_ke
+
+    C = $C
+    S = $S
+
+    es = EarlySecret
+    messages = <messages, ServerHello>
+
+    // y is not actually used anywhere - this isn't DHE mode
+    y = ~y_ignored
+in
+    [ State(S1, tid, S, C, PrevServerState),
+      Fr(y)
+    ]
+  --[ S1_PSK(tid),
+      Instance(tid, S, 'server'),
+      running_server(Nonces, nc, ns),
+      DH(tid, S, y)
+    ]->
+    [
+      State(S2a, tid, S, C, ServerState),
+      DHExp(y, tid, S),
+      Out(ServerHello)
+    ]
+
+rule server_auth_psk:
+let
+    set_state()
+
+    C = $C
+    S = $S
+
+    verify_data = compute_finished(server)
+
+    messages = <messages, Finished>
+
+    cats = application_traffic_secret_0(client)
+    sats = application_traffic_secret_0(server)
+    app_keys = keygen(sats, app_key_label())
+    ems = exporter_master_secret()
+
+in
+    [ State(S2d, tid, S, C, PrevServerState)
+    ]
+  --[ S2d_PSK(tid),
+      Neq(prev_psk_ke_mode, 'na'),
+      Instance(tid, S, 'server'),
+      running_server(Transcript, messages)
+    ]->
+    [ State(S3, tid, S, C, ServerState),
+      SendStream(tid, S, C, auth_status, app_keys),
+      Out(senc{Finished}hs_keys)
+    ]

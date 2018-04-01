@@ -1,0 +1,75 @@
+dnl(
+/*
+    Similarly to msgs.m4i, this file is a translation from Section 7 of the
+    TLS 1.3 specification for use in the Tamarin model
+
+    By mapping the structs as defined in the specification, it is clear
+    where abstractions/simplifications are made.
+
+    Comment blocks are wrapped in dnl(...) and also inside comments for syntax
+    highlighting purposes and to hide them from the final processed output.
+*/)
+// crypto.m4i imports
+
+define(<!L!>, <!'32'!>)
+dnl Use this as HkdfLabel(Label, HashValue, Length)
+define(<!HkdfLabel!>, <!<$3, $1, $2>!> )
+dnl Usage: HKDF_Expand_Label(Secret, Label, HashValue)
+define(<!HKDF_Expand_Label!>, <!Expand($1, HkdfLabel($2, $3, L), L)!>)
+dnl Usage: Derive_Secret(Secret, Label, HashValue)
+define(<!Derive_Secret!>, <!HKDF_Expand_Label($1, $2, <!$3!>)!>)
+define(<!HashValue!>, <!<h(messages)>!>)
+
+define(<!EarlySecret!>, <!Extract(res_psk, '0')!>)
+define(<!binder_key!>, <!Derive_Secret(es, binder_key_label(psk_type), '0')!>)
+define(<!early_traffic_secret!>, <!Derive_Secret(es, 'TLS13clientearlytrafficsecret', <!<!HashValue!>!>)!>)
+define(<!early_exporter_master_secret!>, <!Derive_Secret(es, 'TLS13earlyexportermastersecret', <!<!HashValue!>!>)!>)
+define(<!HandshakeSecret!>, <!Extract(gxy, es)!>)
+define(<!handshake_traffic_secret!>, <!Derive_Secret(hs, 'TLS13$1handshaketrafficsecret', <!<!HashValue!>!>)!>)
+define(<!MasterSecret!>, <!Extract('0', hs)!>)
+define(<!application_traffic_secret_0!>, <!Derive_Secret(ms, 'TLS13$1applicationtrafficsecret', <!<!HashValue!>!>)!>)
+define(<!exporter_master_secret!>, <!Derive_Secret(ms, 'TLS13exportermastersecret', <!<!HashValue!>!>)!>)
+define(<!resumption_master_secret!>, <!Derive_Secret(ms, 'TLS13resumptionmastersecret', <!<!HashValue!>!>)!>)
+
+define(<!early_hs_key_label!>, <!'earlyhandshakekeyexpansion_key'!>)
+define(<!early_app_key_label!>, <!'TLS13earlyapplicationdatakeyexpansion_key'!>)
+define(<!hs_key_label!>, <!'TLS13handshakekeyexpansion_key'!>)
+define(<!app_key_label!>, <!'TLS13applicationdatakeyexpansion_key'!>)
+define(<!app_secret_label!>, <!'TLS13applicationtrafficsecret'!>)
+define(<!fin_key_label!>, <!'TLS13finished'!>)
+define(<!sig_label!>, <!'TLS13$1_CertificateVerify'!>)
+define(<!binder_key_label!>, <!'TLS13$1_pskbinderkey'!>)
+
+
+dnl Use as Signature(key, role)
+define(<!compute_signature!>, <!sign{signature_input($2)}$1!>)
+define(<!signature_input!>, <!<sig_label($1), HashValue>!>)
+define(<!compute_finished!>, <!hmac(keygen(handshake_traffic_secret($1), fin_key_label()), h(messages))!>)
+define(<!compute_binder!>, <!hmac(keygen(binder_key(), binder), h(binder_messages))!>)
+
+dnl Call as keygen(Secret, phase + ", " + purpose)
+define(<!keygen!>, <!HKDF_Expand_Label($1, $2, '0')!>)
+
+dnl Compacts messages/crypto to make traces easier to use
+ifdef(<!SIMPLE_MODEL!>, <!
+define(<!HashValue!>, <!'0'!>)
+define(<!COMPACT_LABELS!>, <!1!>)
+!>)
+ifdef(<!COMPACT_LABELS!>, <!
+define(<!HkdfLabel!>, <!<$1, $2>!>)
+define(<!early_hs_key_label!>, <!'ehske_k'!>)
+define(<!early_app_key_label!>, <!'eadke_wk'!>)
+define(<!hs_key_label!>, <!'kshe_wk'!>)
+define(<!app_key_label!>, <!'adke_wk'!>)
+define(<!app_secret_label!>, <!'ats'!>)
+define(<!fin_key_label!>, <!'fin'!>)
+define(<!binder_key_label!>, <!<$1, 'pbk'>!>)
+define(<!sig_label!>, <!'$1_cv'!>)
+define(<!binder_key!>, <!Derive_Secret(es, binder_key_label(psk_type), '0')!>)
+define(<!early_traffic_secret!>, <!Derive_Secret(es, 'cets', <!<!HashValue!>!>)!>)
+define(<!early_exporter_master_secret!>, <!Derive_Secret(es, 'eems', <!<!HashValue!>!>)!>)
+define(<!handshake_traffic_secret!>, <!Derive_Secret(hs, '$1hts', <!<!HashValue!>!>)!>)
+define(<!application_traffic_secret_0!>, <!Derive_Secret(ms, '$1ats', <!<!HashValue!>!>)!>)
+define(<!exporter_master_secret!>, <!Derive_Secret(ms, 'ems', <!<!HashValue!>!>)!>)
+define(<!resumption_master_secret!>, <!Derive_Secret(ms, 'rms', <!<!HashValue!>!>)!>)
+!>)

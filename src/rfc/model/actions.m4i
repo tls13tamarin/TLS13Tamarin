@@ -1,0 +1,13 @@
+define(<!running!>, <!R$1(tid, $2, $3, <shift(shift(shift($@)))>)!>)
+define(<!commit!>, <!C$1(tid, $2, $3, <shift(shift(shift($@)))>)!>)
+
+define(<!running2!>, <!R$1(tid2, $2, $3, <shift(shift(shift($@)))>)!>)
+define(<!commit2!>, <!C$1(tid2, $2, $3, <shift(shift(shift($@)))>)!>)
+define(<!running3!>, <!R$1(tid3, $2, $3, <shift(shift(shift($@)))>)!>)
+define(<!running4!>, <!R$1(tid4, $2, $3, <shift(shift(shift($@)))>)!>)
+
+define(<!running_server!>, <!running($1, S, 'server', shift($@))!>)
+define(<!running_client!>, <!running($1, C, 'client', shift($@))!>)
+
+define(<!commit_server!>, <!commit($1, S, 'server', shift($@))!>)
+define(<!commit_client!>, <!commit($1, C, 'client', shift($@))!>)

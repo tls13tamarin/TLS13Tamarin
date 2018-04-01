@@ -1,0 +1,34 @@
+builtins: diffie-hellman, hashing, symmetric-encryption, signing
+
+section{* TLS 1.3 *}
+
+/*
+ * Protocol:    TLS 1.3 Handshake and Record Protocols
+ * Modeler:     Cas Cremers, Marko Horvat, Sam Scott, Thyla van der Merwe
+ * Year:        2016
+ * Source:      http://tlswg.github.io/tls13-spec/
+ *
+ * Status:  in progress....
+ */
+
+// Hash declarations
+
+functions: Expand/3, Extract/2, hmac/1, mac/1, mask/2, unmask/2
+
+equations: unmask(mask(x, y), y) = x, unmask(mask(x, y), x) = y
+
+
+/* AXIOMS */
+
+/* Explicit equality checking */
+axiom Eq_check_succeed: "All x y #i. Eq(x,y) @ i ==> x = y"
+axiom Neq_check_succeed: "All x y #i. Neq(x,y) @ i ==> not (x = y)"
+
+/* Generate one long-term key per actor */
+axiom one_ltk:
+  "All A x y #i #j.
+    GenLtk(A, x)@i & GenLtk(A, y)@j ==> #i = #j"
+
+axiom one_role_per_actor:
+    "All actor tid tid2 role role2 #i #j. Start(tid, actor, role)@i & Start(tid2, actor, role2)@j
+        ==> role = role2"
