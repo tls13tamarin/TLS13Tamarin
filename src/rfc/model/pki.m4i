@@ -19,9 +19,23 @@
     Out(pk(~ltkA)) - outputs the public key so the adversary has knowledge
 */
 rule Register_pk:
-  [ Fr(~ltkA) ]--[ GenLtk($A, ~ltkA), HonestUse(~ltkA)
+  [ 
+    Fr(~ltkA),
+    Fr(~ssA)
+  ]
+  --[ 
+    GenLtk($A, ~ltkA), 
+    GenSS($A, ~ssA),
+    HonestUse(~ltkA),
+    HonestUse(~ssA)
   ]->
-  [ !Ltk($A, ~ltkA), !Pk($A, pk(~ltkA)), Out(pk(~ltkA)) ]
+  [ 
+    !Ltk($A, ~ltkA), 
+    !SS($A, ~ssA), 
+    !Pk($A, pk(~ltkA)),
+    Out(pk(~ltkA)),
+    Out('g'^~ssA)
+  ]
 
 /*
   Reveal Ltk
@@ -38,5 +52,8 @@ rule Register_pk:
   Conclusions:
     Out(~ltkA) - provides the adversary with the long-term key
 */
-rule Reveal_Ltk:
-  [ !Ltk($A, ~ltkA) ] --[ RevLtk($A) ]-> [ Out(~ltkA) ]
+//rule Reveal_Ltk:
+//  [ !Ltk($A, ~ltkA, ~ssA) ] --[ RevLtk($A) ]-> [ Out(~ltkA) ]
+
+rule Reveal_SS:
+  [ !Ltk($A, ~ltkA, ~ssA) ] --[ RevLtk($A) ]-> [ Out(~ssA) ]
