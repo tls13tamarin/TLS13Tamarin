@@ -318,6 +318,20 @@ lemma secret_session_keys [hide_lemma=sig_origin,hide_lemma=posths_rms]:
     ==> not Ex #j. K(kr)@j"
 !>)
 
+define(<!lemma_secret_session_keys_ss!>, <!
+lemma secret_session_keys_ss [hide_lemma=sig_origin,hide_lemma=posths_rms]:
+  "All tid actor peer kw kr pas #i.
+      SessionKey(tid, actor, peer, <pas, 'auth'>, <kw, kr>)@i & 
+      not (Ex #r. RevLtk(peer)@r & #r < #i) &
+      not (Ex #r. RevSS(peer)@r & #r < #i) &
+      not (Ex tid3 x #r. RevDHExp(tid3, peer, x)@r & #r < #i) &
+      not (Ex tid4 y #r. RevDHExp(tid4, actor, y)@r & #r < #i) &
+      not (Ex tid5 s #r. RevDHExp(tid5, peer, s)@r & #r < #i) &
+      not (Ex rms #r. RevealPSK(actor, rms)@r) &
+      not (Ex rms #r. RevealPSK(peer, rms)@r)
+    ==> not Ex #j. K(kr)@j"
+!>)
+
 define(<!lemma_secret_session_keys_pfs!>, <!
 lemma secret_session_keys_pfs [hide_lemma=sig_origin,hide_lemma=posths_rms]:
   "All tid actor peer role kw kr pas psk_ke_mode #i.
