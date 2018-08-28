@@ -250,6 +250,9 @@ let
     S = $S
     C = $C
 
+    gs = 'g'^~ssS
+    gxs = gs^x
+
     ss = SemiStaticSecret
     ms = MasterSecretWithSemiStatic
 
@@ -257,7 +260,7 @@ let
     certificate = 'g'^~ssS
     messages = <messages, Certificate>
     sig_expected = compute_signature_mac(ss, server)
-    
+
     sig_messages = signature_input(server)
 
     messages = <messages, CertificateVerify>
@@ -275,14 +278,15 @@ let
     auth_status = <'0', 'auth'>
 in
     [ State(C2d, tid, C, S, PrevClientState),
-      !Pk(S, pk(~ltkS)),
+      // !Pk(S, pk(~ltkS)),
+      !Pk_SS(S, 'g'^~ssS),
       In(senc{Certificate, CertificateVerify, Finished}hs_keys)
     ]
   --[ C2d(tid),
       Instance(tid, C, 'client'),
       Eq(psk_ke_mode, 'na'),
       // Eq(hmac(ss, sig_messages), signature),
-      // Eq(sig_expected, signature),
+      Eq(sig_expected, signature),
       // Eq(verify(signature, sig_messages, pk(~ltkS)), true),
       Eq(verify_data, exp_verify_data),
       running_client(Mode, psk_ke_mode),
