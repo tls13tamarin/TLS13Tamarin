@@ -20,22 +20,51 @@
 */
 rule Register_pk:
   [ 
-    Fr(~ltkA),
-    Fr(~ssA)
+    Fr(~ltkA)
   ]
   --[ 
     GenLtk($A, ~ltkA), 
-    GenSS($A, ~ssA),
-    HonestUse(~ltkA),
-    HonestUse(~ssA)
+    HonestUse(~ltkA)
+    
   ]->
   [ 
     !Ltk($A, ~ltkA), 
-    !SS($A, ~ssA), 
     !Pk($A, pk(~ltkA)),
-    Out(pk(~ltkA)),
+    Out(pk(~ltkA))
+  ]
+
+/* (tvdm) Create new rule to model distributing a DH key. 
+  Register PK_SS
+  ----------------
+  
+  Generates a long-term DH key for a party.
+
+  Premises:
+    Fr(~ssA) - a fresh value for the key exponent
+
+  Actions:
+    GenSS($A, ~ssA) - party $A has generated a long-term DH key exponent
+
+  Conclusions:
+    !SS($A, ~ssA) - binds the long-term DH key to the party $A
+    !Pk_SS($A, 'g'^~ssa) - models the distrubtion of the public DH component by some PKI
+    Out('g'^~ssa) - outputs the public key so the adversary has knowledge
+*/
+rule Register_pk_SS:
+  [
+    Fr(~ssA)
+  ]
+  --[ 
+    GenSS($A, ~ssA),
+    HonestUse(~ssA)
+
+  ]->
+  [
+    !SS($A, ~ssA),
+    !Pk_SS($A, 'g'^~ssA),
     Out('g'^~ssA)
   ]
+
 
 /*
   Reveal Ltk
@@ -52,8 +81,8 @@ rule Register_pk:
   Conclusions:
     Out(~ltkA) - provides the adversary with the long-term key
 */
-//rule Reveal_Ltk:
-//  [ !Ltk($A, ~ltkA, ~ssA) ] --[ RevLtk($A) ]-> [ Out(~ltkA) ]
+rule Reveal_Ltk:
+  [ !Ltk($A, ~ltkA) ] --[ RevLtk($A) ]-> [ Out(~ltkA) ]
 
 rule Reveal_SS:
-  [ !Ltk($A, ~ltkA, ~ssA) ] --[ RevLtk($A) ]-> [ Out(~ssA) ]
+  [ !SS($A, ~ssA) ] --[ RevLtkSS($A) ]-> [ Out(~ssA) ]
