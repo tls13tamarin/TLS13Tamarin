@@ -47,8 +47,8 @@ rule Register_pk:
 
   Conclusions:
     !SS($A, ~ssA) - binds the long-term DH key to the party $A
-    !Pk_SS($A, 'g'^~ssa) - models the distrubtion of the public DH component by some PKI
-    Out('g'^~ssa) - outputs the public key so the adversary has knowledge
+    !Pk_SS($A, 'g'^~ssA) - models the distrubtion of the public DH component by some PKI
+    Out('g'^~ssA) - outputs the public key so the adversary has knowledge
 */
 rule Register_pk_SS:
   [
@@ -81,8 +81,8 @@ rule Register_pk_SS:
   Conclusions:
     Out(~ltkA) - provides the adversary with the long-term key
 */
-rule Reveal_Ltk:
+/* rule Reveal_Ltk:
   [ !Ltk($A, ~ltkA) ] --[ RevLtk($A) ]-> [ Out(~ltkA) ]
 
 rule Reveal_SS:
-  [ !SS($A, ~ssA) ] --[ RevLtkSS($A) ]-> [ Out(~ssA) ]
+  [ !SS($A, ~ssA) ] --[ RevLtkSS($A) ]-> [ Out(~ssA) ] */

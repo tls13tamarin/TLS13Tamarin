@@ -4,8 +4,10 @@ include(msgs.m4i)
 include(state.m4i)
 
 include(pki.m4i)
-include(client_basic.m4i)
-include(server_basic.m4i)
+/* include(client_basic.m4i) */
+/* include(server_basic.m4i) */
+include(client_semistatic.m4i)
+include(server_semistatic.m4i)
 /* include(client_psk.m4i) */
 /* include(server_psk.m4i) */
 include(record.m4i)

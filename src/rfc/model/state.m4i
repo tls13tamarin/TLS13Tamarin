@@ -59,14 +59,18 @@ sg = '0'
 hrr = '0'
 x = '0'
 y = '0'
+s = '0'
 gx = '0'
 gy = '0'
+gs = '0'
 gxy = '0'
+gxs = '0'
 psk_ke_mode = 'na'
 psk_id = '0'
 edi = '0'
 es = '0'
 hs = '0'
+ss = '0'
 ms = '0'
 cats = '0'
 sats = '0'
@@ -88,14 +92,18 @@ prev_sg, dnl
 prev_hrr, dnl
 prev_x, dnl
 prev_y, dnl
+prev_s, dnl
 prev_gx, dnl
 prev_gy, dnl
+prev_gs, dnl
 prev_gxy, dnl
+prev_gxs, dnl
 prev_psk_ke_mode, dnl
 prev_psk_id, dnl
 prev_edi, dnl
 prev_es, dnl
 prev_hs, dnl
+prev_ss, dnl
 prev_ms, dnl
 prev_cats, dnl
 prev_sats, dnl
@@ -116,15 +124,19 @@ g = prev_g
 sg = prev_sg
 x = prev_x
 y = prev_y
+s = prev_s
 gx = prev_gx
 gy = prev_gy
+gs = prev_gs
 gxy = prev_gxy
+gxs = prev_gxs
 hrr = prev_hrr
 psk_ke_mode = prev_psk_ke_mode
 psk_id = prev_psk_id
 edi = prev_edi
 es = prev_es
 hs = prev_hs
+ss = prev_ss
 ms = prev_ms
 cats = prev_cats
 sats = prev_sats

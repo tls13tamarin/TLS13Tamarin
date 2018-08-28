@@ -168,9 +168,7 @@ let
     S = $S
 
     hs = HandshakeSecret
-    ss = SemiStatic
-    ms = MasterSecretWithSemiStatic
-
+    
     hs_keyc = keygen(handshake_traffic_secret(client), hs_key_label())
     hs_keys = keygen(handshake_traffic_secret(server), hs_key_label())
 
@@ -180,9 +178,7 @@ in
     ]
   --[ C2a(tid),
       Instance(tid, C, 'client'),
-      running_client(MS, ms),
       running_client(HS, hs),
-      running_client(SS, ss),
       DeleteDH(tid, C, x)
     ]->
     [
@@ -254,9 +250,13 @@ let
     S = $S
     C = $C
 
+    ss = SemiStaticSecret
+    ms = MasterSecretWithSemiStatic
+
     certificate_request_context = '0'
-    certificate = pk(~ltkS)
+    certificate = 'g'^~ssS
     messages = <messages, Certificate>
+    sig_expected = compute_signature_mac(ss, server)
     sig_messages = signature_input(server)
 
     messages = <messages, CertificateVerify>
@@ -280,14 +280,18 @@ in
   --[ C2d(tid),
       Instance(tid, C, 'client'),
       Eq(psk_ke_mode, 'na'),
-      Eq(hmac(ss, sig_messages), signature),
+      // Eq(hmac(ss, sig_messages), signature),
+      Eq(sig_expected, signature),
       // Eq(verify(signature, sig_messages, pk(~ltkS)), true),
       Eq(verify_data, exp_verify_data),
       running_client(Mode, psk_ke_mode),
       commit_client(Identity, <S, auth_status>),
       commit_client(HS, hs),
       commit_client(Transcript, messages),
-      commit_client(Nonces, nc, ns)
+      commit_client(Nonces, nc, ns),
+      running_client(MS, ms),
+      running_client(SS, ss)
+
     ]->
     [ State(C3, tid, C, S, ClientState),
       RecvStream(tid, C, S, auth_status, app_keys)

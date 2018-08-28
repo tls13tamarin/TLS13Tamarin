@@ -7,3 +7,6 @@ rule Reveal_DHExp:
 rule Reveal_PSK:
     [ SecretPSK($A, res_psk)]--[ RevealPSK($A, res_psk) ]->[Out(res_psk)]
 
+rule Reveal_SS: 
+	[ !SS($A, ~ssA) ] --[ RevSS($A) ]-> [ Out(~ssA) ]
+
