@@ -136,11 +136,10 @@ let
 
     // Group, DH exponent, key share
     y = ~y
-    s = ~s
     gy = g^y
     gxy = gx^y
-    gs = g^s
-    gxs = gx^s
+    gs = g^~s
+    gxs = gx^~s
 
     es = EarlySecret
     messages = <messages, ServerHello>

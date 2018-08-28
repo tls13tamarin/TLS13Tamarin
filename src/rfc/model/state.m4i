@@ -29,14 +29,18 @@ sg, dnl supported DH groups
 hrr, dnl tracks whether HRR has been sent 
 x, dnl client private DH key
 y, dnl server private DH key
+s, dnl server semi-static DH key
 gx, dnl client DH share
 gy, dnl server DH share
+gs, dnl server semi-static DH share
 gxy, dnl derived DH value
+gxs, dnl derived semi-static/client semi-static
 psk_ke_mode, dnl psk key exchange mode
 psk_id, dnl psk identity/ticket
 edi, dnl early data indication
 es, dnl early secret
 hs, dnl handshake secret
+ss, dnl semi-static secret
 ms, dnl master secret
 cats, dnl client application traffic secret
 sats, dnl server application traffic secret
