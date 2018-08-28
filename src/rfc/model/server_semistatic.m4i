@@ -138,14 +138,14 @@ let
     y = ~y
     gy = g^y
     gxy = gx^y
-    gs = g^~s
-    gxs = gx^~s
+    gs = g^~ssS
+    gxs = gx^~ssS
 
     es = EarlySecret
     messages = <messages, ServerHello>
 in
     [ State(S1, tid, S, C, PrevServerState),
-      !SS(S, ~s), // we need a SS to derive the semi-static keyshare here
+      !SS(S, ~ssS),
       Fr(y)
     ]
   --[ S1(tid),

@@ -257,6 +257,7 @@ let
     certificate = 'g'^~ssS
     messages = <messages, Certificate>
     sig_expected = compute_signature_mac(ss, server)
+    
     sig_messages = signature_input(server)
 
     messages = <messages, CertificateVerify>
@@ -281,7 +282,7 @@ in
       Instance(tid, C, 'client'),
       Eq(psk_ke_mode, 'na'),
       // Eq(hmac(ss, sig_messages), signature),
-      Eq(sig_expected, signature),
+      // Eq(sig_expected, signature),
       // Eq(verify(signature, sig_messages, pk(~ltkS)), true),
       Eq(verify_data, exp_verify_data),
       running_client(Mode, psk_ke_mode),
