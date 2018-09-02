@@ -27,7 +27,8 @@ lemma_cert_req_origin
       (Ex #j tid actor role. running(CertReqCtxt, actor, role, certificate_request_context)@j & #j < #i)"
 */
 
-lemma_nst_source/* [typing]:
+/*
+lemma_nst_source [typing]:
   "All ticket ticket_age_add tkt_lt tkt_exts app_key #i.
     KU(senc{handshake_record('4', tkt_lt, ticket_age_add, ticket, tkt_exts)}app_key)@i ==>
       (Ex #j #k. KU(ticket)@j & KU(ticket_age_add)@k & #j < #i & #k < #i) |

@@ -20,9 +20,9 @@ uniq(C1_retry)
 uniq(S1)
 uniq(C1)
 uniq(C2d)
-uniq(C2d_PSK)
+/* uniq(C2d_PSK) */
 uniq(S2d)
-uniq(S2d_PSK)
+/* uniq(S2d_PSK) */
 uniq(C3)
 uniq(C3_cert)
 uniq(S3)
@@ -30,8 +30,8 @@ uniq(S3_cert)
 
 one_of(S3, S3_cert)
 one_of(C3, C3_cert)
-one_of(S2d, S2d_PSK)
-one_of(C2d, C2d_PSK)
+/* one_of(S2d, S2d_PSK) */
+/* one_of(C2d, C2d_PSK) */
 
 
 lemma_tid_invariant/* [use_induction, reuse]:

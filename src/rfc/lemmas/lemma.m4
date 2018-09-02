@@ -20,37 +20,37 @@ uniq(C0)
 uniq(C1)
 uniq(C1_retry)
 uniq(S1)
-uniq(S1_PSK)
-uniq(S1_PSK_DHE)
-uniq(C1_PSK)
-uniq(C1_PSK_DHE)
+/* uniq(S1_PSK) */
+/* uniq(S1_PSK_DHE) */
+/* uniq(C1_PSK) */
+/* uniq(C1_PSK_DHE) */
 uniq(S2a)
 uniq(S2b)
 uniq(S2c)
 uniq(S2c_req)
 uniq(S2d)
-uniq(S2d_PSK)
+/* uniq(S2d_PSK) */
 uniq(C2a)
 uniq(C2b)
 uniq(C2c)
 uniq(C2c_req)
 uniq(C2d)
-uniq(C2d_PSK)
+/* uniq(C2d_PSK) */
 uniq(C3)
 uniq(C3_cert)
 uniq(S3)
 uniq(S3_cert)
 
-one_of(S1, S1_PSK_DHE)
-one_of(S1_PSK, S1_PSK_DHE)
-one_of(S1_PSK, S1)
-one_of(C1, C1_PSK_DHE)
-one_of(C1_PSK, C1_PSK_DHE)
-one_of(C1_PSK, C1)
+/* one_of(S1, S1_PSK_DHE) */
+/* one_of(S1_PSK, S1_PSK_DHE) */
+/* one_of(S1_PSK, S1) */
+/* one_of(C1, C1_PSK_DHE) */
+/* one_of(C1_PSK, C1_PSK_DHE) */
+/* one_of(C1_PSK, C1) */
 one_of(S3, S3_cert)
 one_of(C3, C3_cert)
-one_of(S2d, S2d_PSK)
-one_of(C2d, C2d_PSK)
+/* one_of(S2d, S2d_PSK) */
+/* one_of(C2d, C2d_PSK) */
 
 
 lemma_cert_req_origin/* [typing]:
@@ -60,7 +60,8 @@ lemma_cert_req_origin/* [typing]:
       (Ex #j tid actor role. running(CertReqCtxt, actor, role, certificate_request_context)@j & #j < #i)"
 */
 
-lemma_nst_source/* [typing]:
+/*
+lemma_nst_source [typing]:
   "All ticket ticket_age_add tkt_lt tkt_exts app_key #i.
     KU(senc{handshake_record('4', tkt_lt, ticket_age_add, ticket, tkt_exts)}app_key)@i ==>
       (Ex #j #k. KU(ticket)@j & KU(ticket_age_add)@k & #j < #i & #k < #i) |
@@ -93,8 +94,8 @@ lemma_hsms_derive/* [reuse]:
 // For any running(PostHS...) either the auth_status was set in the main HS and
 // unchanged (along with the RMS), or there was post-hs auth, which means the
 // auth_status is 'auth', the actor is a server*/
-
-lemma_posths_rms/* [reuse, use_induction]:
+/*
+lemma_posths_rms [reuse, use_induction]:
   "All tid actor role hs rms peer aas pas messages #i. 
     running(PostHS, actor, role, hs, rms, peer, <aas, pas>, messages)@i ==>
       Ex ms #j. running(RMS, actor, role, peer, rms, messages)@j &
@@ -139,7 +140,8 @@ lemma_sig_origin/* [reuse]:
       (Ex #j. KU(ltkA)@j & #j < i) | (Ex #k. UseLtk(ltkA, signature)@k & #k < #i)"
 */
 
-lemma_post_master_secret/* [reuse, hide_lemma=posths_rms]:
+/*
+lemma_post_master_secret [reuse, hide_lemma=posths_rms]:
   "All tid actor peer role hs rms aas messages #i #k.
     running(PostHS, actor, role, hs, rms, peer, <aas, 'auth'>, messages)@i & 
     commit(HS, actor, role, hs)@i & 
@@ -152,7 +154,8 @@ lemma_post_master_secret/* [reuse, hide_lemma=posths_rms]:
       (Ex rms2 #r. RevealPSK(peer, rms2)@r & #r < #k)"
 */
 
-lemma_invariant_post_hs/* [reuse, use_induction, hide_lemma=posths_rms]:
+/*
+lemma_invariant_post_hs [reuse, use_induction, hide_lemma=posths_rms]:
   "All tid actor peer peer2 role hs hs2 rms rms2 as as2 msgs msgs2 #i #j.
     running(PostHS, actor, role, hs, rms, peer, as, msgs)@i & 
     running(PostHS, actor, role, hs2, rms2, peer2, as2, msgs2)@j ==>
@@ -316,7 +319,8 @@ lemma_one_start_per_tid/* [reuse]:
   "All tid actor actor2 role role2 #i #j. Start(tid, actor, role)@i & Start(tid, actor2, role2)@j ==>#i=#j"
 */
 
-lemma_ku_fresh_psk/* [reuse]:
+/*
+lemma_ku_fresh_psk [reuse]:
   "All ticket res_psk #i #k.
       FreshPSK(ticket,res_psk)@i & KU(res_psk)@k ==> 
         Ex actor #j. 
