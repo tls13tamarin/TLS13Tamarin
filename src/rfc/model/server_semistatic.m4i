@@ -157,8 +157,8 @@ in
       running_server(Nonces, nc, ns),
       DHChal(g, some_x, y, gx, gy, gxy),
       DHChal(g, some_x, y, gx, gs, gxs), //(tvdm) This might break stuff
-      DH(tid, S, y),
-      DH(tid, S, s) //(tvdm) This might break stuff
+      DH(tid, S, y)
+      // DH(tid, S, s) (tvdm) This might break stuff - this doesn't make sense for semi-static key-share
     ]->
     [
       State(S2a, tid, S, C, ServerState),

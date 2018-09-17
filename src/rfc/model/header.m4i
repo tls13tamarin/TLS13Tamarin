@@ -29,6 +29,12 @@ axiom one_ltk:
   "All A x y #i #j.
     GenLtk(A, x)@i & GenLtk(A, y)@j ==> #i = #j"
 
+/* Generate one semi-static key per actor */  
+/* (tvdm) Our modelling of semi-static DH keys currently doesn't take expiry into account.*/ 
+restriction one_semi_static: 
+	"All A x y #i #j.
+		GenSS(A, x)@i & GenSS(A, y)@j ==> #i = #j"
+
 axiom one_role_per_actor:
     "All actor tid tid2 role role2 #i #j. Start(tid, actor, role)@i & Start(tid2, actor, role2)@j
         ==> role = role2"
