@@ -138,8 +138,9 @@ let
     y = ~y
     gy = g^y
     gxy = gx^y
-    gs = g^~ssS
-    gxs = gx^~ssS
+    s = ~ssS
+    gs = g^s
+    gxs = gx^s
 
     es = EarlySecret
     messages = <messages, ServerHello>
