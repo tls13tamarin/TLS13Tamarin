@@ -16,12 +16,10 @@ from client hello up to the final client finished.
 
 [pki](model/pki.m4i) contains the rules dictating the public-key infrastructure.
 
-[psk](model/psk.m4i) contains the rules for pre-shared key TLS handshakes. This
-includes the rules for establishing a psk (NewSessionTicket message) after the
-initial handshake.
+[client_psk](model/client_psk.m4i) and [server_psk](model/server_psk.m4i) contain the rules for pre-shared key TLS handshakes.
 
-[post_hs](model/post_hs.m4i) contains rules for the other potential post-handshake
-messages: client authentication and key updates.
+[post_hs](model/post_hs.m4i) contains rules for the post-handshake
+messages: new session tickets, client authentication and key updates.
 
 [record](model/record.m4i) contains rules for sending/receiving data. These are 
 written to be role-agnostic, i.e., the same rules work for both client/server.
