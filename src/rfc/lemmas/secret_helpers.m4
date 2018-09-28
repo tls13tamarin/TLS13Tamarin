@@ -95,6 +95,12 @@ lemma_ku_ltk/* [reuse]:
       Ex #k. RevLtk(actor)@k & #k < #j"
 */
 
+lemma_ku_ss/* [reuse]:
+  "All actor ssA #i #j.
+    GenSS(actor, ssA)@i & KU(ssA)@j ==>
+      Ex #k. RevSS(actor)@k & #k < #j"
+*/
+
 /*
 lemma_ku_fresh_psk [reuse]:
   "All ticket res_psk #i #k.
