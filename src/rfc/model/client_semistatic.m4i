@@ -292,10 +292,11 @@ in
       running_client(Mode, psk_ke_mode),
       commit_client(Identity, <S, auth_status>),
       commit_client(HS, hs),
+      commit_client(SS, ss), //(tvdm) We could probably commit to this earlier.
       commit_client(Transcript, messages),
       commit_client(Nonces, nc, ns),
-      running_client(MS, ms),
-      running_client(SS, ss)
+      running_client(MS, ms)
+      // running_client(SS, ss)
 
     ]->
     [ State(C3, tid, C, S, ClientState),
@@ -325,7 +326,7 @@ in
   --[ C3(tid),
       Instance(tid, C, 'client'),
       running_client(Transcript, messages),
-      running_client(HSMS, hs, ms),
+      running_client(HSMS, hs, ms, ss),
       running_client(RMS, S, rms, messages),
       running_client(Mode, psk_ke_mode),
       SessionKey(tid, C, S, auth_status, <app_keyc, app_keys>)
@@ -372,7 +373,7 @@ in
   --[ C3_cert(tid),
       Instance(tid, C, 'client'),
       UseLtk(~ltkC, signature),
-      running_client(HSMS, hs, ms),
+      running_client(HSMS, hs, ms, ss),
       running_client(Transcript, messages),
       running_client(RMS, S, rms, messages),
       running_client(Mode, psk_ke_mode),

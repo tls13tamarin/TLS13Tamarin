@@ -86,8 +86,8 @@ lemma_ku_ltk/* [reuse]:
 */
 
 lemma_hsms_derive/* [reuse]:
-  "All tid actor role hs ms #i.
-    running(HSMS, actor, role, hs, ms)@i ==>
+  "All tid actor role hs ms ss #i.
+    running(HSMS, actor, role, hs, ms, ss)@i ==>
       ms = MasterSecretWithSemiStatic"
 
 
@@ -123,9 +123,10 @@ lemma_matching_rms_posths/* [reuse]:
 */
 
 lemma_rms_derives_hs/*[reuse]:
-  "All tid actor role peer hs rms messages #i #j #k.
+  "All tid actor role peer hs ss rms messages #i #j #k #w.
      running(RMS, actor, role, peer, rms, messages)@j &
      commit(HS, actor, role, hs)@i &
+     commit(SS, actor, role, ss)@w &
      KU(rms)@k ==>
          (Ex ms #l.
              ms = MasterSecretWithSemiStatic &

@@ -143,8 +143,8 @@ lemma ku_fresh_psk [reuse]:
 
 define(<!lemma_hsms_derive!>, <!
 lemma hsms_derive [reuse]:
-  "All tid actor role hs ms #i.
-    running(HSMS, actor, role, hs, ms)@i ==>
+  "All tid actor role hs ms ss #i.
+    running(HSMS, actor, role, hs, ms, ss)@i ==>
       ms = MasterSecretWithSemiStatic"
 !>)
 
@@ -239,9 +239,10 @@ lemma auth_psk [reuse, use_induction, hide_lemma=posths_rms_weak]:
 
 define(<!lemma_rms_derives_hs!>, <!
 lemma rms_derives_hs[reuse,hide_lemma=sig_origin]:
-  "All tid actor role peer hs rms messages #i #j #k.
+  "All tid actor role peer hs ss rms messages #i #j #k #w.
      running(RMS, actor, role, peer, rms, messages)@j &
      commit(HS, actor, role, hs)@i &
+     commit(SS, actor, role, ss)@w &
      KU(rms)@k ==>
          (Ex ms #l.
              ms = MasterSecretWithSemiStatic &

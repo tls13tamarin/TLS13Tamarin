@@ -110,8 +110,8 @@ lemma_ku_fresh_psk [reuse]:
 */
 
 lemma_hsms_derive/* [reuse]:
-  "All tid actor role hs ms #i.
-    running(HSMS, actor, role, hs, ms)@i ==>
+  "All tid actor role hs ms ss #i.
+    running(HSMS, actor, role, hs, ms, ss)@i ==>
       ms = MasterSecretWithSemiStatic"
 */
 

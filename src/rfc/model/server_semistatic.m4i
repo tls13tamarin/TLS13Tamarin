@@ -321,7 +321,8 @@ in
       running_server(Mode, psk_ke_mode),
       commit_server(Identity, C, auth_status),
       commit_server(HS, hs),
-      running_server(HSMS, hs, ms),
+      commit_server(SS, ss), //(tvdm) We could probably commit to this earlier.
+      running_server(HSMS, hs, ms, ss),
       running_server(RMS, C, rms, messages),
       commit_server(Transcript, messages),
       commit_server(Nonces, nc, ns),
@@ -370,7 +371,8 @@ in
       running_server(Mode, psk_ke_mode),
       commit_server(Identity, C, auth_status),
       commit_server(HS, hs),
-      running_server(HSMS, hs, ms),
+      commit_server(SS, ss), //(tvdm) We couold probably commit to this earlier.
+      running_server(HSMS, hs, ms, ss),
       running_server(RMS, C, rms, messages),
       commit_server(Transcript, messages),
       SessionKey(tid, S, C, auth_status, <app_keys, app_keyc>),
