@@ -40,7 +40,7 @@ lemma_one_start_per_tid/* [reuse]:
 
 lemma_cert_req_origin/* [typing]:
   "All certificate_request_context certificate_extensions keys #i.
-    KU(senc{handshake_record('13', certificate_request_context, certificate_extensions)}keys)@i ==> 
+    KU(senc{handshake_record('13', certificate_request_context, certificate_extensions)}keys)@i ==>
       (Ex #j. KU(certificate_request_context)@j & #j < #i) |
       (Ex #j tid actor role. running(CertReqCtxt, actor, role, certificate_request_context)@j & #j < #i)"
 */
@@ -68,9 +68,9 @@ lemma_dh_chal_dual/* [reuse]:
   "All tid tid2 actor actor2 g x y gx gy gxy #i #j #r.
       DHChal(g, x, y, gx, gy, gxy)@i & Instance(tid, actor, 'client')@i &
       DHChal(g, x, y, gx, gy, gxy)@j & Instance(tid2, actor2, 'server')@j &
-      KU(gxy)@r 
-      ==> 
-      (Ex #p. (RevDHExp(tid, actor,  x)@p & #p < #r)) | 
+      KU(gxy)@r
+      ==>
+      (Ex #p. (RevDHExp(tid, actor,  x)@p & #p < #r)) |
       (Ex #q. (RevDHExp(tid2, actor2, y)@q & #q < #r))"
 // "All g x y gx gy gxy #i #r. DHChal(g, x, y, gx, gy, gxy)@i & KU(gxy)@r ==> (Ex #j. KU(x)@j & #j < #r) | (Ex #j. KU(y)@j & #j < #r)"
 */
@@ -104,15 +104,15 @@ lemma_ku_ss/* [reuse]:
 /*
 lemma_ku_fresh_psk [reuse]:
   "All ticket res_psk #i #k.
-      FreshPSK(ticket,res_psk)@i & KU(res_psk)@k ==> 
-        Ex actor #j. 
+      FreshPSK(ticket,res_psk)@i & KU(res_psk)@k ==>
+        Ex actor #j.
           RevealPSK(actor, res_psk)@j & #j < #k"
 */
 
 lemma_hsms_derive/* [reuse]:
-  "All tid actor role hs ms #i. 
+  "All tid actor role hs ms #i.
     running(HSMS, actor, role, hs, ms)@i ==>
-      ms = MasterSecret"
+      ms = MasterSecretWithSemiStatic"
 */
 
 // For any running(PostHS...) either the auth_status was set in the main HS and
@@ -120,11 +120,11 @@ lemma_hsms_derive/* [reuse]:
 // peer's auth_status is 'auth', the actor is a server*/
 /*
 lemma_posths_rms [reuse, use_induction]:
-  "All tid actor role hs rms peer auth_status messages #i. 
+  "All tid actor role hs rms peer auth_status messages #i.
     running(PostHS, actor, role, hs, rms, peer, auth_status, messages)@i ==>
-      Ex aas pas ms #j. 
+      Ex aas pas ms #j.
                 running(RMS, actor, role, peer, rms, messages)@j &
-                ms = MasterSecret & rms = resumption_master_secret() & #j < #i &
+                ms = MasterSecretWithSemiStatic & rms = resumption_master_secret() & #j < #i &
                 auth_status = <aas, pas> &
       (
         (Ex aas2 #k. commit(Identity, actor, role, peer, <aas2, pas>)@k & #k < #i) |
@@ -139,11 +139,11 @@ lemma_posths_rms [reuse, use_induction]:
 // Can use [hide_lemma=posths_rms] to only use this version.
 /*
 lemma_posths_rms_weak [reuse, use_induction]:
-  "All tid actor role hs rms peer auth_status messages #i. 
+  "All tid actor role hs rms peer auth_status messages #i.
     running(PostHS, actor, role, hs, rms, peer, auth_status, messages)@i ==>
-      Ex aas pas ms #j. 
+      Ex aas pas ms #j.
                 running(RMS, actor, role, peer, rms, messages)@j &
-                ms = MasterSecret & rms = resumption_master_secret() & #j < #i &
+                ms = MasterSecretWithSemiStatic & rms = resumption_master_secret() & #j < #i &
                 auth_status = <aas, pas>"
 */
 
@@ -179,7 +179,7 @@ lemma_rev_dh_before_hs/*  [reuse]:
 
 lemma_matching_sessions/* [reuse, use_induction, hide_lemma=posths_rms]:
   "All tid tid2 actor actor2 role role2 peer peer2 rms messages #i #j #k.
-    running(RMS, actor, role, peer2, rms, messages)@i & 
+    running(RMS, actor, role, peer2, rms, messages)@i &
     running2(RMS, peer, role2, actor2, rms, messages)@j &
     not (role = role2) &
     KU(rms)@k ==>
@@ -198,8 +198,8 @@ lemma_sig_origin/* [reuse]:
 /*
 lemma_post_master_secret [reuse, hide_lemma=posths_rms]:
   "All tid actor peer role hs rms aas messages #i #k.
-    running(PostHS, actor, role, hs, rms, peer, <aas, 'auth'>, messages)@i & 
-    commit(HS, actor, role, hs)@i & 
+    running(PostHS, actor, role, hs, rms, peer, <aas, 'auth'>, messages)@i &
+    commit(HS, actor, role, hs)@i &
     commit(IdentityPost, actor, role, peer, <aas, 'auth'>)@i &
     KU(rms)@k ==>
       (Ex #r. RevLtk(peer)@r & #r < #i) |
@@ -212,7 +212,7 @@ lemma_post_master_secret [reuse, hide_lemma=posths_rms]:
 /*
 lemma_invariant_post_hs [reuse, use_induction, hide_lemma=posths_rms]:
   "All tid actor peer peer2 role hs hs2 rms rms2 as as2 msgs msgs2 #i #j.
-    running(PostHS, actor, role, hs, rms, peer, as, msgs)@i & 
+    running(PostHS, actor, role, hs, rms, peer, as, msgs)@i &
     running(PostHS, actor, role, hs2, rms2, peer2, as2, msgs2)@j ==>
       peer = peer2 & rms = rms2 & msgs = msgs2 & hs = hs2"
 */
@@ -230,14 +230,14 @@ lemma_invariant_post_hs [reuse, use_induction, hide_lemma=posths_rms]:
 
   This will have to prove inductively over both RRMS (similar to matching sessions)
   in fact, can probably roll it in to matching_sessions?
-  
+
 
 */
 
 
 lemma_auth_psk/* [reuse, use_induction, hide_lemma=posths_rms_weak]:
   "All tid tid2 actor actor2 role role2 peer peer2 rms messages aas #i #j #k.
-    running(RMS, actor, role, peer2, rms, messages)@i & 
+    running(RMS, actor, role, peer2, rms, messages)@i &
     running2(RMS, peer, role2, actor2, rms, messages)@j &
     commit(Identity, actor, role, <peer, <aas, 'auth'>>)@k &
     not (role = role2)
