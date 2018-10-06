@@ -183,7 +183,8 @@ let
     hs_keyc = keygen(handshake_traffic_secret(client), hs_key_label())
 in
     [ State(S2a, tid, S, C, PrevServerState),
-      DHExp(y, tid, S)
+      DHExp(y, tid, S),
+      !SS(S, ~ssS)
     ]
   --[ S2a(tid),
       MasterSecret(tid, ms),
@@ -191,6 +192,7 @@ in
       running_server(HS, hs),
       running_server(MS, ms),
       running_server(SS, ss),
+      DeriveFromSS(~ssS, ss),
       DeleteDH(tid, S, y)
    ]->
     [ State(S2b, tid, S, C, ServerState)
@@ -222,8 +224,8 @@ let
     S = $S
     C = $C
 
-    certificate_request_context = '0' 
-    cert_req = '1' 
+    certificate_request_context = '0'
+    cert_req = '1'
     messages = <messages, CertificateRequest>
 in
     [ State(S2c, tid, S, C, PrevServerState)
@@ -261,7 +263,7 @@ let
     S = $S
 
     certificate_request_context = '0'
-    /* certificate = pk(~ltkS) */ 
+    /* certificate = pk(~ltkS) */
     certificate = 'g'^~ssS
     messages = <messages, Certificate>
     signature = compute_signature_mac(ss, server)
@@ -280,7 +282,7 @@ let
     auth_status = <'auth', '0'>
 in
     [ State(S2d, tid, S, C, PrevServerState),
-      // !Ltk(S, ~ltkS), 
+      // !Ltk(S, ~ltkS),
       !SS(S, ~ssS)
     ]
   --[ S2d(tid),
@@ -342,7 +344,7 @@ let
     S = $S
 
     certificate = pk(~ltkC)
-    certificate_request_context ='0' 
+    certificate_request_context ='0'
     messages = <messages, Certificate>
 
     sig_messages = signature_input(client)
