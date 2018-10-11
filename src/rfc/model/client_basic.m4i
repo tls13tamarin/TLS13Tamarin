@@ -1,0 +1,373 @@
+dnl(
+/*
+  Client rules for standard (vanilla) handshake.
+
+  From the specification 2. Protocol overview
+
+         Client                                               Server
+
+  Key  ^ ClientHello
+  Exch | + key_share*
+       v + pre_shared_key*         -------->
+                                                         ServerHello  ^ Key
+                                                        + key_share*  | Exch
+                                                   + pre_shared_key*  v
+                                               {EncryptedExtensions}  ^  Server
+                                               {CertificateRequest*}  v  Params
+                                                      {Certificate*}  ^
+                                                {CertificateVerify*}  | Auth
+                                                          {Finished}  v
+                                   <--------     [Application Data*]
+       ^ {Certificate*}
+  Auth | {CertificateVerify*}
+       v {Finished}                -------->
+*/)
+
+dnl Extensions definitions for basic ClientHello
+define(<!ClientHelloExtensions!>, <!<SupportedVersions, NamedGroupList, SignatureSchemeList, KeyShareCH >!>)
+rule client_hello:
+let
+    // Initialise state variables to zero.
+    init_state()
+
+    // Abstract client identity - does not currently correspond to
+    // anything concrete
+    C = $C
+
+    // Server identity - can be interpreted as the hostname
+    S = $S
+
+    // Client nonce
+    nc = ~nc
+
+    // We reuse the client nonce to be a thread identifier
+    tid = nc
+
+    // Group, DH exponent, key share
+    g1 = $g1
+    g2 = $g2
+    sg = <g1, g2>
+    client_sg = <g1, g2>
+    g = g1
+    x = ~x
+    gx = g^x
+
+    messages = <messages, ClientHello>
+    es = EarlySecret
+in
+    [ Fr(nc),
+      Fr(x)
+    ]
+  --[ C0(tid),
+      Start(tid, C, 'client'),
+      running_client(Identity, C),
+      Neq(g1, g2),
+      DH(tid, C, x),
+      HonestUse(~x),
+      HonestUse(gx)
+    ]->
+    [
+      State(C1, tid, C, S, ClientState),
+      DHExp(x, tid, C),
+    // Write the ClientHelloMsg onto the wire *presumably* with destination S
+      Out(ClientHello)
+    ]
+
+define(<!HelloRetryRequestExtensions!>, <!<KeyShareHRR>!>)
+rule recv_hello_retry_request:
+let
+    g1 = $g1
+    g2 = $g2
+    prev_sg = <g1, g2>
+    prev_g = g1
+    prev_hrr = '0'
+    set_state()
+    hrr = 'hrr'
+    new_g = g2
+    g = g2
+    client_sg = <g1, g2>
+
+    C = $C
+    S = $S
+
+    new_x = ~new_x
+    x = new_x
+    gx = g^x
+
+
+    // PSK after HRR has its own rule (see recv_hello_retry_request_psk)
+    psk_ke_mode = 'na'
+    auth_status = <'0', '0'>
+
+    messages = <messages, HelloRetryRequest>
+    messages = <messages, ClientHello>
+    es = EarlySecret
+in
+    [ State(C1, tid, C, S, PrevClientState),
+      Fr(new_x),
+      In(HelloRetryRequest),
+      DHExp(prev_x, tid, C)
+    ]
+  --[ C1_retry(tid),
+      Neq(g1, g2),
+      Instance(tid, C, 'client'),
+      DeleteDH(tid, C, prev_x),
+      DH(tid, C, x)
+    ]->
+    [ Out(ClientHello),
+      DHExp(x, tid, C),
+      State(C1, tid, C, S, ClientState)
+    ]
+
+
+dnl Extensions definitions for basic ServerHello
+define(<!ServerHelloExtensions!>, <!<SignatureSchemeList, KeyShareSH>!>)
+rule recv_server_hello:
+let
+    prev_g = $g
+    prev_x = ~x
+
+    set_state()
+    ns = new_ns
+    gy = new_gy
+
+    C = $C
+    S = $S
+
+    // equivalent to checking gy in <$g>
+    gy = g^new_y
+
+    // Derive the shared secret
+    gxy = gy^x
+
+    // Received a basic server hello - abandon PSK mode (if attempted)
+    psk_ke_mode = 'na'
+    auth_status = <'0', '0'>
+
+    messages = <messages, ServerHello>
+in
+    [ State(C1, tid, C, S, PrevClientState),
+      In(ServerHello)
+    ]
+  --[ C1(tid),
+      Instance(tid, C, 'client'),
+      Neq(gy, g),
+      Neq(gxy, g),
+      DHChal(g, x, new_y, gx, gy, gxy),
+      running_client(Nonces, nc, ns)
+    ]->
+    [
+      State(C2a, tid, C, S, ClientState)
+    ]
+
+rule client_gen_keys:
+let
+    set_state()
+
+    C = $C
+    S = $S
+
+    hs = HandshakeSecret
+    ms = MasterSecret
+
+    hs_keyc = keygen(handshake_traffic_secret(client), hs_key_label())
+    hs_keys = keygen(handshake_traffic_secret(server), hs_key_label())
+
+in
+    [ State(C2a, tid, C, S, PrevClientState),
+      DHExp(x, tid, C)
+    ]
+  --[ C2a(tid),
+      Instance(tid, C, 'client'),
+      running_client(MS, ms),
+      running_client(HS, hs),
+      DeleteDH(tid, C, x)
+    ]->
+    [
+      State(C2b, tid, C, S, ClientState)
+    ]
+
+rule recv_encrypted_extensions:
+let
+    set_state()
+
+    S = $S
+    C = $C
+
+    messages = <messages, EncryptedExtensions>
+
+in
+    [ State(C2b, tid, C, S, PrevClientState),
+      In(senc{EncryptedExtensions}hs_keys)
+    ]
+  --[ C2b(tid),
+      Instance(tid, C, 'client')
+    ]->
+    [ State(C2c, tid, C, S, ClientState)
+    ]
+
+rule recv_certificate_request:
+let
+    prev_psk_ke_mode ='na'
+    set_state()
+
+    S = $S
+    C = $C
+
+    certificate_request_context = '0' 
+    cert_req = '1'
+    messages = <messages, CertificateRequest>
+
+in
+    [ State(C2c, tid, C, S, PrevClientState),
+      In(senc{CertificateRequest}hs_keys)
+    ]
+  --[ C2c_req(tid),
+      Instance(tid, C, 'client')
+    ]->
+    [ State(C2d, tid, C, S, ClientState)
+    ]
+
+rule skip_recv_certificate_request:
+let
+    set_state()
+
+    S = $S
+    C = $C
+    cert_req = '0'
+in
+    [ State(C2c, tid, C, S, PrevClientState)
+    ]
+  --[ C2c(tid),
+      Instance(tid, C, 'client')
+    ]->
+    [ State(C2d, tid, C, S, ClientState)
+    ]
+
+rule recv_server_auth:
+let
+    prev_psk_ke_mode = 'na'
+    set_state()
+
+    S = $S
+    C = $C
+
+    certificate_request_context = '0'
+    certificate = pk(~ltkS)
+    messages = <messages, Certificate>
+    sig_messages = signature_input(server)
+
+    messages = <messages, CertificateVerify>
+
+    exp_verify_data = compute_finished(server)
+
+    messages = <messages, Finished>
+
+    cats = application_traffic_secret_0(client)
+    sats = application_traffic_secret_0(server)
+    app_keys = keygen(sats, app_key_label())
+    ems = exporter_master_secret()
+
+    // auth_status = <cas, sas>
+    auth_status = <'0', 'auth'>
+in
+    [ State(C2d, tid, C, S, PrevClientState),
+      !Pk(S, pk(~ltkS)),
+      In(senc{Certificate, CertificateVerify, Finished}hs_keys)
+    ]
+  --[ C2d(tid),
+      Instance(tid, C, 'client'),
+      Eq(psk_ke_mode, 'na'),
+      Eq(verify(signature, sig_messages, pk(~ltkS)), true),
+      Eq(verify_data, exp_verify_data),
+      running_client(Mode, psk_ke_mode),
+      commit_client(Identity, <S, auth_status>),
+      commit_client(HS, hs),
+      commit_client(Transcript, messages),
+      commit_client(Nonces, nc, ns)
+    ]->
+    [ State(C3, tid, C, S, ClientState),
+      RecvStream(tid, C, S, auth_status, app_keys)
+    ]
+
+rule client_auth:
+let
+    // If certificate was requested, cannot ignore
+    prev_cert_req = '0'
+    set_state()
+
+    S = $S
+    C = $C
+
+    verify_data = compute_finished(client)
+
+    messages = <messages, Finished>
+
+    rms = resumption_master_secret()
+    app_keyc = keygen(cats, app_key_label())
+    app_keys = keygen(sats, app_key_label())
+in
+
+    [ State(C3, tid, C, S, PrevClientState)
+    ]
+  --[ C3(tid),
+      Instance(tid, C, 'client'),
+      running_client(Transcript, messages),
+      running_client(HSMS, hs, ms),
+      running_client(RMS, S, rms, messages),
+      running_client(Mode, psk_ke_mode),
+      SessionKey(tid, C, S, auth_status, <app_keyc, app_keys>)
+    ]->
+    [ State(C4, tid, C, S, ClientState),
+      Out(senc{Finished}hs_keyc),
+      SendStream(tid, C, S, auth_status, app_keyc)
+    ]
+
+rule client_auth_cert:
+let
+    prev_cert_req = '1'
+    prev_psk_ke_mode = 'na'
+    set_state()
+
+    S = $S
+    C = $C
+
+    certificate_request_context = '0' 
+    certificate = pk(~ltkC)
+    messages = <prev_messages, Certificate>
+
+    signature = compute_signature(~ltkC, client)
+    messages = <messages, CertificateVerify>
+
+    verify_data = compute_finished(client)
+    messages = <messages, Finished>
+
+    rms = resumption_master_secret()
+
+    // zeroes cert_req after it has been used
+    cert_req = '0'
+
+    app_keyc = keygen(cats, app_key_label())
+    app_keys = keygen(sats, app_key_label())
+
+    auth_status = <'auth', 'auth'>
+in
+
+    [ State(C3, tid, C, S, PrevClientState),
+      RecvStream(tid, C, S, prev_auth_status, app_keys),
+      !Ltk(C, ~ltkC)
+    ]
+  --[ C3_cert(tid),
+      Instance(tid, C, 'client'),
+      UseLtk(~ltkC, signature),
+      running_client(HSMS, hs, ms),
+      running_client(Transcript, messages),
+      running_client(RMS, S, rms, messages),
+      running_client(Mode, psk_ke_mode),
+      SessionKey(tid, C, S, auth_status, <app_keyc, app_keys>)
+    ]->
+    [ State(C4, tid, C, S, ClientState),
+      Out(senc{Certificate, CertificateVerify, Finished}hs_keyc),
+      SendStream(tid, C, S, auth_status, app_keyc),
+      RecvStream(tid, C, S, auth_status, app_keys)
+    ]

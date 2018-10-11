@@ -1,0 +1,357 @@
+rule out_of_band_psk:
+let
+    C = $C
+    S = $S
+    res_psk = ~res_psk
+    ticket = ~ticket
+    ticket_age_add = ~ticket_age_add
+
+    // Implicitly authed perhaps...
+    auth_status = <'oob_auth', 'oob_auth'>
+in
+    [ Fr(ticket), Fr(res_psk), Fr(~ticket_age_add)]
+  --[ GenPSK(S, 'server'), GenPSK(C, 'client'),
+      FreshPSK(ticket,res_psk)
+    ]->
+    [ !ClientPSK(C, S, res_psk, auth_status, NewSessionTicket, 'ext'),
+      !ServerPSK(S, C, res_psk, auth_status, NewSessionTicket, 'ext'),
+      SecretPSK(S, res_psk),
+      SecretPSK(C, res_psk)
+    ]
+
+
+rule new_session_ticket:
+let
+    prev_rms = resumption_master_secret()
+    set_state()
+
+    C = $C
+    S = $S
+
+    ticket = ~ticket
+    ticket_age_add = ~ticket_age_add
+
+
+    res_psk = rms
+in
+    [ State(S4, tid, S, C, PrevServerState),
+      SendStream(tid, S, C, auth_status, app_keys),
+      Fr(ticket),
+      Fr(ticket_age_add)
+    ]
+  --[ S4_NST(tid),
+      Instance(tid, S, 'server'),
+      running_server(PostHS, hs, rms, C, auth_status, messages),
+      running_server(NST, ticket, ticket_age_add)
+    ]->
+    [ State(S4, tid, S, C, ServerState),
+      SendStream(tid, S, C, auth_status, app_keys),
+      !ServerPSK(S, C, res_psk, auth_status, NewSessionTicket, 'res'),
+      SecretPSK(S, res_psk),
+      Out(senc{NewSessionTicket}app_keys)
+    ]
+
+rule recv_new_session_ticket:
+let
+    prev_rms = resumption_master_secret()
+    set_state()
+
+    C = $C
+    S = $S
+
+    res_psk = rms
+in
+    [ State(C4, tid, C, S, PrevClientState),
+      RecvStream(tid, C, S, auth_status, app_keys),
+      In(senc{NewSessionTicket}app_keys)
+    ]
+  --[ C4_NST(tid),
+      Instance(tid, C, 'client'),
+      running_client(PostHS, hs, rms, S, auth_status, messages)
+    ]->
+    [ State(C4, tid, C, S, ClientState),
+      RecvStream(tid, C, S, auth_status, app_keys),
+      !ClientPSK(C, S, res_psk, auth_status, NewSessionTicket, 'res'),
+      SecretPSK(C, res_psk)
+    ]
+
+
+rule certificate_request_post:
+let
+//    prev_cert_req_ctxt = '0'
+    set_state()
+
+    S = $S
+    C = $C
+
+    certificate_request_context = ~cert_req_ctxt
+//    cert_req_ctxt = ~cert_req_ctxt
+in
+    [ State(S4, tid, S, C, PrevServerState),
+      SendStream(tid, S, C, prev_auth_status, app_keys),
+      Fr(certificate_request_context)
+    ]
+  --[ S4_req(tid),
+      Instance(tid, S, 'server'),
+      running_server(CertReqCtxt, certificate_request_context),
+      running_server(PostHS, hs, rms, C, auth_status, messages)
+    ]->
+    [ State(S4, tid, S, C, ServerState),
+      SendStream(tid, S, C, auth_status, app_keys),
+      ServerCertReq(tid, S, C, certificate_request_context),
+      Out(senc{CertificateRequest}app_keys)
+    ]
+
+rule recv_certificate_request_post:
+let
+//    prev_cert_req_ctxt = '0'
+    set_state()
+
+    S = $S
+    C = $C
+
+//    cert_req_ctxt = certificate_request_context
+in
+    [ State(C4, tid, C, S, PrevClientState),
+      RecvStream(tid, C, S, prev_auth_status, app_keys),
+      In(senc{CertificateRequest}app_keys)
+    ]
+  --[ C4_req(tid),
+      Neq(certificate_request_context, '0'),
+      Instance(tid, C, 'client'),
+      running_client(PostHS, hs, rms, S, auth_status, messages)
+    ]->
+    [ State(C4, tid, C, S, ClientState),
+      RecvStream(tid, C, S, auth_status, app_keys),
+      ClientCertReq(tid, C, S, certificate_request_context)
+    ]
+
+rule client_auth_post:
+let
+  prev_auth_status = <prev_cas, prev_sas>
+    set_state()
+
+    S = $S
+    C = $C
+
+//    certificate_request_context = prev_cert_req_ctxt
+    certificate = pk(~ltkC)
+
+    tmp_messages = messages
+    messages = <messages, CertificateRequest>
+
+    signature = compute_signature(~ltkC, client)
+
+    fin_keyc = keygen(cats, fin_key_label())
+    verify_data = compute_finished(fin_keyc)
+
+//    cert_req_ctxt = '0'
+    messages = tmp_messages
+
+    auth_status = <'auth', prev_sas>
+in
+
+    [ State(C4, tid, C, S, PrevClientState),
+      SendStream(tid, C, S, prev_auth_status, app_keyc),
+      !Ltk(C, ~ltkC),
+      ClientCertReq(tid, C, S, certificate_request_context)
+    ]
+  --[ C4_cert(tid),
+      Instance(tid, C, 'client'),
+      Neq(certificate_request_context, '0'),
+      UseLtk(~ltkC, signature),
+      running_client(TranscriptPost, messages, certificate_request_context),
+      running_client(PostHS, hs, rms, S, auth_status, messages)
+    ]->
+    [ State(C4, tid, C, S, ClientState),
+      SendStream(tid, C, S, auth_status, app_keyc),
+      Out(senc{Certificate, CertificateVerify, Finished}app_keyc)
+    ]
+
+
+rule recv_client_auth_post:
+let
+    prev_auth_status = <prev_sas, prev_cas>
+    set_state()
+
+    C = $C
+    S = $S
+
+    certificate = pk(~ltkC)
+    certificate_request_context = ~cert_req_ctxt
+
+    tmp_messages = messages
+    messages = <messages, CertificateRequest>
+
+    sig_messages = signature_input(client)
+
+    fin_keyc = keygen(cats, fin_key_label())
+    exp_verify_data = compute_finished(fin_keyc)
+
+//    cert_req_ctxt = '0'
+    auth_status = <prev_sas, 'auth'>
+    messages = tmp_messages
+in
+    [ State(S4, tid, S, C, PrevServerState),
+      RecvStream(tid, S, C, prev_auth_status, app_keyc),
+      !Pk(C, pk(~ltkC)),
+      ServerCertReq(tid, S, C, certificate_request_context),
+      In(senc{Certificate, CertificateVerify, Finished}app_keyc)
+    ]
+  --[ S4_cert(tid),
+      Instance(tid, S, 'server'),
+      Neq(certificate_request_context, '0'),
+      Eq(verify(signature, sig_messages, pk(~ltkC)), true),
+      Eq(verify_data, exp_verify_data),
+      commit_server(IdentityPost, <C, auth_status>),
+      commit_server(TranscriptPost, messages, certificate_request_context),
+      commit_server(HS, hs),
+      running_server(PostHS, hs, rms, C, auth_status, messages)
+    ]->
+    [ State(S4, tid, S, C, ServerState),
+      RecvStream(tid, S, C, auth_status, app_keyc)
+    ]
+
+rule update_req_client:
+let
+    set_state()
+
+    C = $C
+    S = $S
+
+    cats = keygen(prev_cats, app_secret_label())
+    app_keyc = keygen(cats, app_key_label())
+in
+    [ State(C4, tid, C, S, PrevClientState),
+      SendStream(tid, C, S, prev_auth_status, prev_app_keyc)
+    ]
+  --[ C4_update_req(tid),
+      Instance(tid, C, 'client'),
+      running_client(PostHS, hs, rms, S, auth_status, messages)
+    ]->
+    [ State(C4, tid, C, S, ClientState),
+      SendStream(tid, C, S, auth_status, app_keyc),
+      Out(senc{KeyUpdate}prev_app_keyc)
+    ]
+
+rule update_req_server:
+let
+    set_state()
+
+    C = $C
+    S = $S
+
+    sats = keygen(prev_sats, app_secret_label())
+    app_keys = keygen(sats, app_key_label())
+in
+    [ State(S4, tid, S, C, PrevServerState),
+      SendStream(tid, S, C, prev_auth_status, prev_app_keys)
+    ]
+  --[ S4_update_req(tid),
+      Instance(tid, S, 'server'),
+      running_server(PostHS, hs, rms, C, auth_status, messages)
+    ]->
+    [ State(S4, tid, S, C, ServerState),
+      SendStream(tid, S, C, auth_status, app_keys),
+      Out(senc{KeyUpdate}prev_app_keys)
+    ]
+
+rule update_recv_client:
+let
+    set_state()
+
+    C = $C
+    S = $S
+
+    cats = keygen(prev_cats, app_secret_label())
+    sats = keygen(prev_sats, app_secret_label())
+    app_keyc = keygen(cats, app_key_label())
+    app_keys = keygen(sats, app_key_label())
+in
+    [ State(C4, tid, C, S, PrevClientState),
+      RecvStream(tid, C, S, prev_auth_status, prev_app_keys),
+      SendStream(tid, C, S, prev_auth_status, prev_app_keyc),
+      In(senc{KeyUpdate}prev_app_keys)
+    ]
+  --[ C4_update_recv(tid),
+      Instance(tid, C, 'client'),
+      running_client(PostHS, hs, rms, S, auth_status, messages)
+    ]->
+    [ State(C4, tid, C, S, ClientState),
+      RecvStream(tid, C, S, auth_status, app_keys),
+      SendStream(tid, C, S, auth_status, app_keyc),
+      Out(senc{KeyUpdateReply}prev_app_keyc)
+    ]
+
+rule update_recv_server:
+let
+    set_state()
+
+    C = $C
+    S = $S
+
+
+    cats = keygen(prev_cats, app_secret_label())
+    sats = keygen(prev_sats, app_secret_label())
+    app_keyc = keygen(cats, app_key_label())
+    app_keys = keygen(sats, app_key_label())
+in
+    [ State(S4, tid, S, C, PrevServerState),
+      RecvStream(tid, S, C, prev_auth_status, prev_app_keyc),
+      SendStream(tid, S, C, prev_auth_status, prev_app_keys),
+      In(senc{KeyUpdate}prev_app_keyc)
+    ]
+  --[ S4_update_recv(tid),
+      Instance(tid, S, 'server'),
+      running_server(PostHS, hs, rms, C, auth_status, messages)
+    ]->
+    [ State(S4, tid, S, C, ServerState),
+      RecvStream(tid, S, C, auth_status, app_keyc),
+      SendStream(tid, S, C, auth_status, app_keys),
+      Out(senc{KeyUpdateReply}prev_app_keys)
+    ]
+
+rule update_fin_client:
+let
+    set_state()
+
+    C = $C
+    S = $S
+
+    sats = keygen(prev_sats, app_secret_label())
+    app_keys = keygen(sats, app_key_label())
+in
+    [ State(C4, tid, C, S, PrevClientState),
+      RecvStream(tid, C, S, prev_auth_status, prev_app_keys),
+      In(senc{KeyUpdateReply}prev_app_keys)
+    ]
+  --[ C4_update_fin(tid),
+      Instance(tid, C, 'client'),
+      running_client(PostHS, hs, rms, S, auth_status, messages)
+    ]->
+    [ State(C4, tid, C, S, ClientState),
+      RecvStream(tid, C, S, auth_status, app_keys)
+    ]
+
+rule update_fin_server:
+let
+    set_state()
+
+    C = $C
+    S = $S
+
+
+    cats = keygen(prev_cats, app_secret_label())
+    app_keyc = keygen(cats, app_key_label())
+in
+    [ State(S4, tid, S, C, PrevServerState),
+      RecvStream(tid, S, C, prev_auth_status, prev_app_keyc),
+      In(senc{KeyUpdateReply}prev_app_keyc)
+    ]
+  --[ S4_update_fin(tid),
+      Instance(tid, S, 'server'),
+      running_server(PostHS, hs, rms, C, auth_status, messages)
+    ]->
+    [ State(S4, tid, S, C, ServerState),
+      RecvStream(tid, S, C, auth_status, app_keyc)
+    ]

@@ -1,0 +1,3419 @@
+theory Mutual_Authentication_Agreement begin
+
+// Function signature and definition of the equational theory E
+
+builtins: diffie-hellman
+functions: Expand/3, Extract/2, fst/1, h/1, hmac/1, mac/1, mask/2,
+           pair/2, pk/1, sdec/2, senc/2, sign/2, snd/1, true/0, unmask/2,
+           verify/3
+equations:
+    fst(<x.1, x.2>) = x.1,
+    sdec(senc(x.1, x.2), x.2) = x.1,
+    snd(<x.1, x.2>) = x.2,
+    unmask(mask(x, y), x) = y,
+    unmask(mask(x, y), y) = x,
+    verify(sign(x.1, x.2), x.1, pk(x.2)) = true
+
+/* looping facts with injective instances: State_C1/29 */
+
+section{* TLS 1.3 *}
+
+axiom Eq_check_succeed:
+  "∀ x y #i. (Eq( x, y ) @ #i) ⇒ (x = y)"
+  // safety formula
+
+axiom Neq_check_succeed:
+  "∀ x y #i. (Neq( x, y ) @ #i) ⇒ (¬(x = y))"
+  // safety formula
+
+axiom one_ltk:
+  "∀ A x y #i #j.
+    ((GenLtk( A, x ) @ #i) ∧ (GenLtk( A, y ) @ #j)) ⇒ (#i = #j)"
+  // safety formula
+
+axiom one_role_per_actor:
+  "∀ actor tid tid2 role role2 #i #j.
+    ((Start( tid, actor, role ) @ #i) ∧
+     (Start( tid2, actor, role2 ) @ #j)) ⇒
+    (role = role2)"
+  // safety formula
+
+rule (modulo E) Register_pk:
+   [ Fr( ~ltkA ) ]
+  --[ GenLtk( $A, ~ltkA ), HonestUse( ~ltkA ) ]->
+   [ !Ltk( $A, ~ltkA ), !Pk( $A, pk(~ltkA) ), MessageOut( pk(~ltkA) )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) Reveal_Ltk:
+   [ !Ltk( $A, ~ltkA ) ] --[ RevLtk( $A ) ]-> [ MessageOut( ~ltkA ) ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) client_hello:
+   [ Fr( ~nc ), Fr( ~x ) ]
+  --[
+  C0( ~nc ), Start( ~nc, $C, 'client' ),
+  RIdentity( ~nc, $C, 'client', $C ), Neq( $g1, $g2 ),
+  DH( ~nc, ~x, $g1^~x ), HonestUse( ~x ), HonestUse( $g1^~x )
+  ]->
+   [
+   State_C1( ~nc, $C, $S, '0',
+             <'0', '1', '0x0303', ~nc, '0', $cipher_suites, '0', 
+              <'43', '0x0304'>, <'10', $g1, $g2>, <'13', $sig_algs>, '40', $g1, 
+              $g1^~x>,
+             ~nc, '0', $g1, <$g1, $g2>, '0', ~x, '0', $g1^~x, '0', '0', 'na',
+             '0', '0', Extract('0', '0'), '0', '0', '0', '0', '0', '0',
+             <'0', '0'>, '0', '0', '0'
+   ),
+   MessageOut( <'1', '0x0303', ~nc, '0', $cipher_suites, '0', 
+                <'43', '0x0304'>, <'10', $g1, $g2>, <'13', $sig_algs>, '40', $g1, 
+                $g1^~x>
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) recv_hello_retry_request:
+   [
+   State_C1( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, $g1, <$g1, $g2>, '0', prev_x, prev_y, prev_gx, prev_gy,
+             prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi, prev_es,
+             prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc, prev_hs_keys,
+             prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   ),
+   Fr( ~new_x ), F_MessageIn( <'6', '0x0303', '40', $g2> )
+   ]
+  --[
+  C1_retry( tid ), Neq( $g1, $g2 ), Instance( tid, $C, 'client' ),
+  DH( tid, ~new_x, $g2^~new_x )
+  ]->
+   [
+   MessageOut( <'1', '0x0303', prev_nc, '0', $cipher_suites, '0', 
+                <'43', '0x0304'>, <'10', $g1, $g2>, <'13', $sig_algs>, '40', $g2, 
+                $g2^~new_x>
+   ),
+   State_C1( tid, $C, $S, prev_res_psk,
+             <<prev_messages, '6', '0x0303', '40', $g2>, '1', '0x0303', 
+              prev_nc, '0', $cipher_suites, '0', <'43', '0x0304'>, 
+              <'10', $g1, $g2>, <'13', $sig_algs>, '40', $g2, $g2^~new_x>,
+             prev_nc, prev_ns, $g2, <$g1, $g2>, 'hrr', ~new_x, prev_y,
+             $g2^~new_x, prev_gy, prev_gxy, 'na', prev_psk_id, prev_edi,
+             Extract(prev_res_psk, '0'), prev_hs, prev_ms, prev_cats, prev_sats,
+             prev_hs_keyc, prev_hs_keys, <'0', '0'>, prev_ems, prev_rms,
+             prev_cert_req
+   )
+   ]
+
+  // loop breaker: [2]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) recv_server_hello:
+   [
+   State_C1( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, $g, prev_sg, prev_hrr, ~x, prev_y, prev_gx, prev_gy,
+             prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi, prev_es,
+             prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc, prev_hs_keys,
+             prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   ),
+   F_MessageIn( <'2', '0x0303', new_ns, $cipher_suite, 
+                 <'13', $sig_algs>, '40', $g, $g^new_y>
+   )
+   ]
+  --[
+  C1( tid ), Instance( tid, $C, 'client' ),
+  RecvDH( tid, $g^new_y, $g^new_y^~x ), Neq( $g^new_y, $g ),
+  Neq( $g^new_y^~x, $g ),
+  DHChal( $g, ~x, new_y, prev_gx, $g^new_y, $g^new_y^~x ),
+  RNonces( tid, $C, 'client', <prev_nc, new_ns> )
+  ]->
+   [
+   State_C2a( tid, $C, $S, prev_res_psk,
+              <prev_messages, '2', '0x0303', new_ns, $cipher_suite, 
+               <'13', $sig_algs>, '40', $g, $g^new_y>,
+              prev_nc, new_ns, $g, prev_sg, prev_hrr, ~x, prev_y, prev_gx,
+              $g^new_y, $g^new_y^~x, 'na', prev_psk_id, prev_edi, prev_es,
+              prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc, prev_hs_keys,
+              <'0', '0'>, prev_ems, prev_rms, prev_cert_req
+   )
+   ]
+
+  // loop breaker: [1]
+  /*
+  rule (modulo AC) recv_server_hello:
+     [
+     State_C1( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+               prev_ns, $g, prev_sg, prev_hrr, ~x, prev_y, prev_gx, prev_gy,
+               prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi, prev_es,
+               prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc, prev_hs_keys,
+               prev_auth_status, prev_ems, prev_rms, prev_cert_req
+     ),
+     F_MessageIn( <'2', '0x0303', new_ns, $cipher_suite, 
+                   <'13', $sig_algs>, '40', $g, z>
+     )
+     ]
+    --[
+    C1( tid ), Instance( tid, $C, 'client' ), RecvDH( tid, z, z.1 ),
+    Neq( z, $g ), Neq( z.1, $g ),
+    DHChal( $g, ~x, new_y, prev_gx, z, z.1 ),
+    RNonces( tid, $C, 'client', <prev_nc, new_ns> )
+    ]->
+     [
+     State_C2a( tid, $C, $S, prev_res_psk,
+                <prev_messages, '2', '0x0303', new_ns, $cipher_suite, 
+                 <'13', $sig_algs>, '40', $g, z>,
+                prev_nc, new_ns, $g, prev_sg, prev_hrr, ~x, prev_y, prev_gx, z,
+                z.1, 'na', prev_psk_id, prev_edi, prev_es, prev_hs, prev_ms,
+                prev_cats, prev_sats, prev_hs_keyc, prev_hs_keys, <'0', '0'>,
+                prev_ems, prev_rms, prev_cert_req
+     )
+     ]
+    variants (modulo AC)
+    1. $g    = $g.43
+       ~x    = ~x.45
+       new_y = inv(~x.45)
+       z     = $g.43^inv(~x.45)
+       z.1   = $g.43
+    
+    2. $g    = $g.43
+       ~x    = ~x.45
+       new_y = one
+       z     = $g.43
+       z.1   = $g.43^~x.45
+    
+    3. $g    = $g.45
+       ~x    = ~x.47
+       new_y = new_y.49
+       z     = $g.45^new_y.49
+       z.1   = $g.45^(~x.47*new_y.49)
+    
+    4. $g    = $g.276
+       ~x    = ~x.278
+       new_y = inv((~x.278*x.547))
+       z     = $g.276^inv((~x.278*x.547))
+       z.1   = $g.276^inv(x.547)
+    
+    5. $g    = $g.276
+       ~x    = ~x.278
+       new_y = (x.547*inv(~x.278))
+       z     = $g.276^(x.547*inv(~x.278))
+       z.1   = $g.276^x.547
+    
+    6. $g    = $g.277
+       ~x    = ~x.279
+       new_y = (x.549*inv((~x.279*x.548)))
+       z     = $g.277^(x.549*inv((~x.279*x.548)))
+       z.1   = $g.277^(x.549*inv(x.548))
+    // loop breaker: [1]
+  */
+
+rule (modulo E) client_gen_keys:
+   [
+   State_C2a( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+              prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+              prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+              prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+              prev_hs_keys, prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   )
+   ]
+  --[
+  C2a( tid ), Instance( tid, $C, 'client' ),
+  RMS( tid, $C, 'client', Extract('0', Extract(prev_gxy, prev_es)) ),
+  RHS( tid, $C, 'client', Extract(prev_gxy, prev_es) )
+  ]->
+   [
+   State_C2b( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+              prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+              prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+              prev_es, Extract(prev_gxy, prev_es),
+              Extract('0', Extract(prev_gxy, prev_es)), prev_cats, prev_sats,
+              Expand(Expand(Extract(prev_gxy, prev_es),
+                            <'clienthts', h(prev_messages)>, '32'),
+                     <'kshe_wk', '0'>, '32'),
+              Expand(Expand(Extract(prev_gxy, prev_es),
+                            <'serverhts', h(prev_messages)>, '32'),
+                     <'kshe_wk', '0'>, '32'),
+              prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) recv_encrypted_extensions:
+   [
+   State_C2b( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+              prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+              prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+              prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+              prev_hs_keys, prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   ),
+   F_MessageIn( senc(<'8', $exts>, prev_hs_keys) )
+   ]
+  --[ C2b( tid ), Instance( tid, $C, 'client' ) ]->
+   [
+   State_C2c( tid, $C, $S, prev_res_psk, <prev_messages, '8', $exts>,
+              prev_nc, prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y,
+              prev_gx, prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id,
+              prev_edi, prev_es, prev_hs, prev_ms, prev_cats, prev_sats,
+              prev_hs_keyc, prev_hs_keys, prev_auth_status, prev_ems, prev_rms,
+              prev_cert_req
+   )
+   ]
+
+  // loop breaker: [1]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) recv_certificate_request:
+   [
+   State_C2c( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+              prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+              prev_gy, prev_gxy, 'na', prev_psk_id, prev_edi, prev_es, prev_hs,
+              prev_ms, prev_cats, prev_sats, prev_hs_keyc, prev_hs_keys,
+              prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   ),
+   F_MessageIn( senc(<'13', '0', $certificate_extensions>,
+                     prev_hs_keys)
+   )
+   ]
+  --[ C2c_req( tid ), Instance( tid, $C, 'client' ) ]->
+   [
+   State_C2d( tid, $C, $S, prev_res_psk,
+              <prev_messages, '13', '0', $certificate_extensions>, prev_nc,
+              prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+              prev_gy, prev_gxy, 'na', prev_psk_id, prev_edi, prev_es, prev_hs,
+              prev_ms, prev_cats, prev_sats, prev_hs_keyc, prev_hs_keys,
+              prev_auth_status, prev_ems, prev_rms, '1'
+   )
+   ]
+
+  // loop breaker: [1]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) skip_recv_certificate_request:
+   [
+   State_C2c( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+              prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+              prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+              prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+              prev_hs_keys, prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   )
+   ]
+  --[ C2c( tid ), Instance( tid, $C, 'client' ) ]->
+   [
+   State_C2d( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+              prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+              prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+              prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+              prev_hs_keys, prev_auth_status, prev_ems, prev_rms, '0'
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) recv_server_auth:
+   [
+   State_C2d( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+              prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+              prev_gy, prev_gxy, 'na', prev_psk_id, prev_edi, prev_es, prev_hs,
+              prev_ms, prev_cats, prev_sats, prev_hs_keyc, prev_hs_keys,
+              prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   ),
+   !Pk( $S, pk(~ltkS) ),
+   F_MessageIn( senc(<<'11', '0', pk(~ltkS)>, <'15', signature>, 
+                      '20', verify_data>,
+                     prev_hs_keys)
+   )
+   ]
+  --[
+  C2d( tid ), Instance( tid, $C, 'client' ), Eq( 'na', 'na' ),
+  Eq( verify(signature,
+             <'server_cv', h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+             pk(~ltkS)),
+      true
+  ),
+  Eq( verify_data,
+      hmac(<
+            Expand(Expand(prev_hs,
+                          <'serverhts', 
+                           h(<<prev_messages, '11', '0', pk(~ltkS)>, '15', signature>)>,
+                          '32'),
+                   <'fin', '0'>, '32'), 
+            h(<<prev_messages, '11', '0', pk(~ltkS)>, '15', signature>)>)
+  ),
+  CIdentity( tid, $C, 'client', <$S, '0', 'auth'> ),
+  CHS( tid, $C, 'client', prev_hs ),
+  CTranscript( tid, $C, 'client',
+               <<<prev_messages, '11', '0', pk(~ltkS)>, '15', signature>, '20', 
+                verify_data>
+  ),
+  CNonces( tid, $C, 'client', <prev_nc, prev_ns> ),
+  SessionKey( $C, $S, 'client',
+              <
+               Expand(Expand(prev_ms,
+                             <'serverats', 
+                              h(<<<prev_messages, '11', '0', pk(~ltkS)>, '15', signature>, '20', 
+                                 verify_data>)
+                             >,
+                             '32'),
+                      <'adke_wk', '0'>, '32'), 
+               '0', 'auth'>
+  )
+  ]->
+   [
+   State_C3( tid, $C, $S, prev_res_psk,
+             <<<prev_messages, '11', '0', pk(~ltkS)>, '15', signature>, '20', 
+              verify_data>,
+             prev_nc, prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y,
+             prev_gx, prev_gy, prev_gxy, 'na', prev_psk_id, prev_edi, prev_es,
+             prev_hs, prev_ms,
+             Expand(prev_ms,
+                    <'clientats', 
+                     h(<<<prev_messages, '11', '0', pk(~ltkS)>, '15', signature>, '20', 
+                        verify_data>)
+                    >,
+                    '32'),
+             Expand(prev_ms,
+                    <'serverats', 
+                     h(<<<prev_messages, '11', '0', pk(~ltkS)>, '15', signature>, '20', 
+                        verify_data>)
+                    >,
+                    '32'),
+             prev_hs_keyc, prev_hs_keys, <'0', 'auth'>,
+             Expand(prev_ms,
+                    <'ems', 
+                     h(<<<prev_messages, '11', '0', pk(~ltkS)>, '15', signature>, '20', 
+                        verify_data>)
+                    >,
+                    '32'),
+             prev_rms, prev_cert_req
+   ),
+   RecvStream( tid, $C, $S, <'0', 'auth'>,
+               Expand(Expand(prev_ms,
+                             <'serverats', 
+                              h(<<<prev_messages, '11', '0', pk(~ltkS)>, '15', signature>, '20', 
+                                 verify_data>)
+                             >,
+                             '32'),
+                      <'adke_wk', '0'>, '32')
+   )
+   ]
+
+  // loop breaker: [2]
+  /*
+  rule (modulo AC) recv_server_auth:
+     [
+     State_C2d( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+                prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+                prev_gy, prev_gxy, 'na', prev_psk_id, prev_edi, prev_es, prev_hs,
+                prev_ms, prev_cats, prev_sats, prev_hs_keyc, prev_hs_keys,
+                prev_auth_status, prev_ems, prev_rms, prev_cert_req
+     ),
+     !Pk( $S, pk(~ltkS) ),
+     F_MessageIn( senc(<<'11', '0', pk(~ltkS)>, <'15', signature>, 
+                        '20', verify_data>,
+                       prev_hs_keys)
+     )
+     ]
+    --[
+    C2d( tid ), Instance( tid, $C, 'client' ), Eq( 'na', 'na' ),
+    Eq( z, true ),
+    Eq( verify_data,
+        hmac(<
+              Expand(Expand(prev_hs,
+                            <'serverhts', 
+                             h(<<prev_messages, '11', '0', pk(~ltkS)>, '15', signature>)>,
+                            '32'),
+                     <'fin', '0'>, '32'), 
+              h(<<prev_messages, '11', '0', pk(~ltkS)>, '15', signature>)>)
+    ),
+    CIdentity( tid, $C, 'client', <$S, '0', 'auth'> ),
+    CHS( tid, $C, 'client', prev_hs ),
+    CTranscript( tid, $C, 'client',
+                 <<<prev_messages, '11', '0', pk(~ltkS)>, '15', signature>, '20', 
+                  verify_data>
+    ),
+    CNonces( tid, $C, 'client', <prev_nc, prev_ns> ),
+    SessionKey( $C, $S, 'client',
+                <
+                 Expand(Expand(prev_ms,
+                               <'serverats', 
+                                h(<<<prev_messages, '11', '0', pk(~ltkS)>, '15', signature>, '20', 
+                                   verify_data>)
+                               >,
+                               '32'),
+                        <'adke_wk', '0'>, '32'), 
+                 '0', 'auth'>
+    )
+    ]->
+     [
+     State_C3( tid, $C, $S, prev_res_psk,
+               <<<prev_messages, '11', '0', pk(~ltkS)>, '15', signature>, '20', 
+                verify_data>,
+               prev_nc, prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y,
+               prev_gx, prev_gy, prev_gxy, 'na', prev_psk_id, prev_edi, prev_es,
+               prev_hs, prev_ms,
+               Expand(prev_ms,
+                      <'clientats', 
+                       h(<<<prev_messages, '11', '0', pk(~ltkS)>, '15', signature>, '20', 
+                          verify_data>)
+                      >,
+                      '32'),
+               Expand(prev_ms,
+                      <'serverats', 
+                       h(<<<prev_messages, '11', '0', pk(~ltkS)>, '15', signature>, '20', 
+                          verify_data>)
+                      >,
+                      '32'),
+               prev_hs_keyc, prev_hs_keys, <'0', 'auth'>,
+               Expand(prev_ms,
+                      <'ems', 
+                       h(<<<prev_messages, '11', '0', pk(~ltkS)>, '15', signature>, '20', 
+                          verify_data>)
+                      >,
+                      '32'),
+               prev_rms, prev_cert_req
+     ),
+     RecvStream( tid, $C, $S, <'0', 'auth'>,
+                 Expand(Expand(prev_ms,
+                               <'serverats', 
+                                h(<<<prev_messages, '11', '0', pk(~ltkS)>, '15', signature>, '20', 
+                                   verify_data>)
+                               >,
+                               '32'),
+                        <'adke_wk', '0'>, '32')
+     )
+     ]
+    variants (modulo AC)
+    1. ~ltkS = ~ltkS.61
+       prev_messages
+             = prev_messages.76
+       signature
+             = sign(<'server_cv', h(<prev_messages.76, '11', '0', pk(~ltkS.61)>)
+                    >,
+                    ~ltkS.61)
+       z     = true
+    
+    2. ~ltkS = ~ltkS.72
+       prev_messages
+             = prev_messages.87
+       signature
+             = signature.98
+       z     = verify(signature.98,
+                      <'server_cv', h(<prev_messages.87, '11', '0', pk(~ltkS.72)>)>,
+                      pk(~ltkS.72))
+    // loop breaker: [2]
+  */
+
+rule (modulo E) client_auth:
+   [
+   State_C3( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+             prev_hs_keys, prev_auth_status, prev_ems, prev_rms, '0'
+   )
+   ]
+  --[
+  C3( tid ), Instance( tid, $C, 'client' ),
+  RTranscript( tid, $C, 'client',
+               <prev_messages, '20', 
+                hmac(<
+                      Expand(Expand(prev_hs, <'clienthts', h(prev_messages)>, '32'),
+                             <'fin', '0'>, '32'), 
+                      h(prev_messages)>)
+               >
+  ),
+  RHSMS( tid, $C, 'client', <prev_hs, prev_ms> ),
+  RRMS( tid, $C, 'client',
+        <$S, 
+         Expand(prev_ms,
+                <'rms', 
+                 h(<prev_messages, '20', 
+                    hmac(<
+                          Expand(Expand(prev_hs, <'clienthts', h(prev_messages)>, '32'),
+                                 <'fin', '0'>, '32'), 
+                          h(prev_messages)>)
+                   >)
+                >,
+                '32'), 
+         prev_messages, '20', 
+         hmac(<
+               Expand(Expand(prev_hs, <'clienthts', h(prev_messages)>, '32'),
+                      <'fin', '0'>, '32'), 
+               h(prev_messages)>)
+        >
+  )
+  ]->
+   [
+   State_C4( tid, $C, $S, prev_res_psk,
+             <prev_messages, '20', 
+              hmac(<
+                    Expand(Expand(prev_hs, <'clienthts', h(prev_messages)>, '32'),
+                           <'fin', '0'>, '32'), 
+                    h(prev_messages)>)
+             >,
+             prev_nc, prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y,
+             prev_gx, prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id,
+             prev_edi, prev_es, prev_hs, prev_ms, prev_cats, prev_sats,
+             prev_hs_keyc, prev_hs_keys, prev_auth_status, prev_ems,
+             Expand(prev_ms,
+                    <'rms', 
+                     h(<prev_messages, '20', 
+                        hmac(<
+                              Expand(Expand(prev_hs, <'clienthts', h(prev_messages)>, '32'),
+                                     <'fin', '0'>, '32'), 
+                              h(prev_messages)>)
+                       >)
+                    >,
+                    '32'),
+             '0'
+   ),
+   MessageOut( senc(<'20', 
+                     hmac(<
+                           Expand(Expand(prev_hs, <'clienthts', h(prev_messages)>, '32'),
+                                  <'fin', '0'>, '32'), 
+                           h(prev_messages)>)
+                    >,
+                    prev_hs_keyc)
+   ),
+   SendStream( tid, $C, $S, prev_auth_status,
+               Expand(prev_cats, <'adke_wk', '0'>, '32')
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) client_auth_cert:
+   [
+   State_C3( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, 'na', prev_psk_id, prev_edi, prev_es, prev_hs,
+             prev_ms, prev_cats, prev_sats, prev_hs_keyc, prev_hs_keys,
+             prev_auth_status, prev_ems, prev_rms, '1'
+   ),
+   !Ltk( $C, ~ltkC )
+   ]
+  --[
+  C3_cert( tid ), Instance( tid, $C, 'client' ),
+  UseLtk( ~ltkC,
+          sign(<'client_cv', h(<prev_messages, '11', '0', pk(~ltkC)>)>,
+               ~ltkC)
+  ),
+  RHSMS( tid, $C, 'client', <prev_hs, prev_ms> ),
+  RTranscript( tid, $C, 'client',
+               <
+                <<prev_messages, '11', '0', pk(~ltkC)>, '15', 
+                 sign(<'client_cv', h(<prev_messages, '11', '0', pk(~ltkC)>)>,
+                      ~ltkC)
+                >, 
+                '20', 
+                hmac(<
+                      Expand(Expand(prev_hs,
+                                    <'clienthts', 
+                                     h(<<prev_messages, '11', '0', pk(~ltkC)>, '15', 
+                                        sign(<'client_cv', h(<prev_messages, '11', '0', pk(~ltkC)>)
+                                             >,
+                                             ~ltkC)
+                                       >)
+                                    >,
+                                    '32'),
+                             <'fin', '0'>, '32'), 
+                      h(<<prev_messages, '11', '0', pk(~ltkC)>, '15', 
+                         sign(<'client_cv', h(<prev_messages, '11', '0', pk(~ltkC)>)>,
+                              ~ltkC)
+                        >)
+                     >)
+               >
+  ),
+  RRMS( tid, $C, 'client',
+        <$S, 
+         Expand(prev_ms,
+                <'rms', 
+                 h(<
+                    <<prev_messages, '11', '0', pk(~ltkC)>, '15', 
+                     sign(<'client_cv', h(<prev_messages, '11', '0', pk(~ltkC)>)>,
+                          ~ltkC)
+                    >, 
+                    '20', 
+                    hmac(<
+                          Expand(Expand(prev_hs,
+                                        <'clienthts', 
+                                         h(<<prev_messages, '11', '0', pk(~ltkC)>, '15', 
+                                            sign(<'client_cv', 
+                                                  h(<prev_messages, '11', '0', pk(~ltkC)>)>,
+                                                 ~ltkC)
+                                           >)
+                                        >,
+                                        '32'),
+                                 <'fin', '0'>, '32'), 
+                          h(<<prev_messages, '11', '0', pk(~ltkC)>, '15', 
+                             sign(<'client_cv', h(<prev_messages, '11', '0', pk(~ltkC)>)>,
+                                  ~ltkC)
+                            >)
+                         >)
+                   >)
+                >,
+                '32'), 
+         <<prev_messages, '11', '0', pk(~ltkC)>, '15', 
+          sign(<'client_cv', h(<prev_messages, '11', '0', pk(~ltkC)>)>,
+               ~ltkC)
+         >, 
+         '20', 
+         hmac(<
+               Expand(Expand(prev_hs,
+                             <'clienthts', 
+                              h(<<prev_messages, '11', '0', pk(~ltkC)>, '15', 
+                                 sign(<'client_cv', h(<prev_messages, '11', '0', pk(~ltkC)>)>,
+                                      ~ltkC)
+                                >)
+                             >,
+                             '32'),
+                      <'fin', '0'>, '32'), 
+               h(<<prev_messages, '11', '0', pk(~ltkC)>, '15', 
+                  sign(<'client_cv', h(<prev_messages, '11', '0', pk(~ltkC)>)>,
+                       ~ltkC)
+                 >)
+              >)
+        >
+  )
+  ]->
+   [
+   State_C4( tid, $C, $S, prev_res_psk,
+             <
+              <<prev_messages, '11', '0', pk(~ltkC)>, '15', 
+               sign(<'client_cv', h(<prev_messages, '11', '0', pk(~ltkC)>)>,
+                    ~ltkC)
+              >, 
+              '20', 
+              hmac(<
+                    Expand(Expand(prev_hs,
+                                  <'clienthts', 
+                                   h(<<prev_messages, '11', '0', pk(~ltkC)>, '15', 
+                                      sign(<'client_cv', h(<prev_messages, '11', '0', pk(~ltkC)>)>,
+                                           ~ltkC)
+                                     >)
+                                  >,
+                                  '32'),
+                           <'fin', '0'>, '32'), 
+                    h(<<prev_messages, '11', '0', pk(~ltkC)>, '15', 
+                       sign(<'client_cv', h(<prev_messages, '11', '0', pk(~ltkC)>)>,
+                            ~ltkC)
+                      >)
+                   >)
+             >,
+             prev_nc, prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y,
+             prev_gx, prev_gy, prev_gxy, 'na', prev_psk_id, prev_edi, prev_es,
+             prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc, prev_hs_keys,
+             <'auth', 'auth'>, prev_ems,
+             Expand(prev_ms,
+                    <'rms', 
+                     h(<
+                        <<prev_messages, '11', '0', pk(~ltkC)>, '15', 
+                         sign(<'client_cv', h(<prev_messages, '11', '0', pk(~ltkC)>)>,
+                              ~ltkC)
+                        >, 
+                        '20', 
+                        hmac(<
+                              Expand(Expand(prev_hs,
+                                            <'clienthts', 
+                                             h(<<prev_messages, '11', '0', pk(~ltkC)>, '15', 
+                                                sign(<'client_cv', 
+                                                      h(<prev_messages, '11', '0', pk(~ltkC)>)>,
+                                                     ~ltkC)
+                                               >)
+                                            >,
+                                            '32'),
+                                     <'fin', '0'>, '32'), 
+                              h(<<prev_messages, '11', '0', pk(~ltkC)>, '15', 
+                                 sign(<'client_cv', h(<prev_messages, '11', '0', pk(~ltkC)>)>,
+                                      ~ltkC)
+                                >)
+                             >)
+                       >)
+                    >,
+                    '32'),
+             '0'
+   ),
+   MessageOut( senc(<<'11', '0', pk(~ltkC)>, 
+                     <'15', 
+                      sign(<'client_cv', h(<prev_messages, '11', '0', pk(~ltkC)>)>,
+                           ~ltkC)
+                     >, 
+                     '20', 
+                     hmac(<
+                           Expand(Expand(prev_hs,
+                                         <'clienthts', 
+                                          h(<<prev_messages, '11', '0', pk(~ltkC)>, '15', 
+                                             sign(<'client_cv', 
+                                                   h(<prev_messages, '11', '0', pk(~ltkC)>)>,
+                                                  ~ltkC)
+                                            >)
+                                         >,
+                                         '32'),
+                                  <'fin', '0'>, '32'), 
+                           h(<<prev_messages, '11', '0', pk(~ltkC)>, '15', 
+                              sign(<'client_cv', h(<prev_messages, '11', '0', pk(~ltkC)>)>,
+                                   ~ltkC)
+                             >)
+                          >)
+                    >,
+                    prev_hs_keyc)
+   ),
+   SendStream( tid, $C, $S, <'auth', 'auth'>,
+               Expand(prev_cats, <'adke_wk', '0'>, '32')
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) start_server:
+   [ Fr( ~tid ) ]
+  --[
+  Start( ~tid, $S, 'server' ), RIdentity( ~tid, $S, 'server', $S )
+  ]->
+   [
+   State_S0( ~tid, $S, $C, '0', '0', '0', '0', '0', $g, '0', '0', '0',
+             '0', '0', '0', 'na', '0', '0', '0', '0', '0', '0', '0', '0', '0',
+             <'0', '0'>, '0', '0', '0'
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) recv_client_hello:
+   [
+   F_MessageIn( <'1', '0x0303', new_nc, '0', $cipher_suites, '0', 
+                 <'43', '0x0304'>, <'10', $g1, $g2>, <'13', $sig_algs>, '40', 
+                 $new_g, $new_g^new_x>
+   ),
+   Fr( ~new_ns ),
+   State_S0( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+             prev_hs_keys, prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   )
+   ]
+  --[ S0( tid ), Neq( $g1, $g2 ) ]->
+   [
+   State_S1( tid, $S, $C, prev_res_psk,
+             <prev_messages, '1', '0x0303', new_nc, '0', $cipher_suites, '0', 
+              <'43', '0x0304'>, <'10', $g1, $g2>, <'13', $sig_algs>, '40', 
+              $new_g, $new_g^new_x>,
+             new_nc, ~new_ns, $new_g, prev_sg, prev_hrr, prev_x, prev_y,
+             $new_g^new_x, prev_gy, prev_gxy, 'na', prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+             prev_hs_keys, prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   )
+   ]
+
+  // loop breakers: [0,2]
+  /*
+  rule (modulo AC) recv_client_hello:
+     [
+     F_MessageIn( <'1', '0x0303', new_nc, '0', $cipher_suites, '0', 
+                   <'43', '0x0304'>, <'10', $g1, $g2>, <'13', $sig_algs>, '40', 
+                   $new_g, z>
+     ),
+     Fr( ~new_ns ),
+     State_S0( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+               prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+               prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+               prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+               prev_hs_keys, prev_auth_status, prev_ems, prev_rms, prev_cert_req
+     )
+     ]
+    --[ S0( tid ), Neq( $g1, $g2 ) ]->
+     [
+     State_S1( tid, $S, $C, prev_res_psk,
+               <prev_messages, '1', '0x0303', new_nc, '0', $cipher_suites, '0', 
+                <'43', '0x0304'>, <'10', $g1, $g2>, <'13', $sig_algs>, '40', 
+                $new_g, z>,
+               new_nc, ~new_ns, $new_g, prev_sg, prev_hrr, prev_x, prev_y, z,
+               prev_gy, prev_gxy, 'na', prev_psk_id, prev_edi, prev_es, prev_hs,
+               prev_ms, prev_cats, prev_sats, prev_hs_keyc, prev_hs_keys,
+               prev_auth_status, prev_ems, prev_rms, prev_cert_req
+     )
+     ]
+    variants (modulo AC)
+    1. $new_g
+             = $new_g.48
+       z     = $new_g.48
+    
+    2. $new_g
+             = $new_g.384
+       z     = $new_g.384^new_x.761
+    // loop breakers: [0,2]
+  */
+
+rule (modulo E) hello_retry_request:
+   [
+   State_S1( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, $prev_sg, '0', prev_x, prev_y, prev_gx, prev_gy,
+             prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi, prev_es,
+             prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc, prev_hs_keys,
+             prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   )
+   ]
+  --[
+  S1_retry( tid ), Neq( prev_g, $prev_sg ),
+  Instance( tid, $S, 'server' )
+  ]->
+   [
+   MessageOut( <'6', '0x0303', '40', $prev_sg> ),
+   State_S0( tid, $S, $C, prev_res_psk,
+             <prev_messages, '6', '0x0303', '40', $prev_sg>, prev_nc, prev_ns,
+             $prev_sg, $prev_sg, 'hrr', prev_x, prev_y, prev_gx, prev_gy,
+             prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi, prev_es,
+             prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc, prev_hs_keys,
+             prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) server_hello:
+   [
+   State_S1( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, $prev_g, prev_sg, prev_hrr, prev_x, prev_y,
+             $prev_g^some_x, prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id,
+             prev_edi, prev_es, prev_hs, prev_ms, prev_cats, prev_sats,
+             prev_hs_keyc, prev_hs_keys, prev_auth_status, prev_ems, prev_rms,
+             prev_cert_req
+   ),
+   Fr( ~y )
+   ]
+  --[
+  S1( tid ), Eq( $prev_g, prev_sg ), Neq( $prev_g^some_x, $prev_g ),
+  Neq( $prev_g^some_x^~y, $prev_g ), Instance( tid, $S, 'server' ),
+  RNonces( tid, $S, 'server', <prev_nc, prev_ns> ),
+  DH( tid, ~y, $prev_g^~y ), HonestUse( ~y ),
+  HonestUse( $prev_g^~y ),
+  DHChal( $prev_g, some_x, ~y, $prev_g^some_x, $prev_g^~y,
+          $prev_g^some_x^~y
+  )
+  ]->
+   [
+   State_S2a( tid, $S, $C, prev_res_psk,
+              <prev_messages, '2', '0x0303', prev_ns, $cipher_suite, 
+               <'13', $sig_algs>, '40', $prev_g, $prev_g^~y>,
+              prev_nc, prev_ns, $prev_g, prev_sg, prev_hrr, prev_x, ~y,
+              $prev_g^some_x, $prev_g^~y, $prev_g^some_x^~y, 'na', prev_psk_id,
+              prev_edi, Extract(prev_res_psk, '0'), prev_hs, prev_ms, prev_cats,
+              prev_sats, prev_hs_keyc, prev_hs_keys, <'0', '0'>, prev_ems,
+              prev_rms, prev_cert_req
+   ),
+   MessageOut( <'2', '0x0303', prev_ns, $cipher_suite, 
+                <'13', $sig_algs>, '40', $prev_g, $prev_g^~y>
+   )
+   ]
+
+  /*
+  rule (modulo AC) server_hello:
+     [
+     State_S1( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+               prev_ns, $prev_g, prev_sg, prev_hrr, prev_x, prev_y, z, prev_gy,
+               prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi, prev_es,
+               prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc, prev_hs_keys,
+               prev_auth_status, prev_ems, prev_rms, prev_cert_req
+     ),
+     Fr( ~y )
+     ]
+    --[
+    S1( tid ), Eq( $prev_g, prev_sg ), Neq( z, $prev_g ),
+    Neq( z.1, $prev_g ), Instance( tid, $S, 'server' ),
+    RNonces( tid, $S, 'server', <prev_nc, prev_ns> ),
+    DH( tid, ~y, $prev_g^~y ), HonestUse( ~y ),
+    HonestUse( $prev_g^~y ),
+    DHChal( $prev_g, some_x, ~y, z, $prev_g^~y, z.1 )
+    ]->
+     [
+     State_S2a( tid, $S, $C, prev_res_psk,
+                <prev_messages, '2', '0x0303', prev_ns, $cipher_suite, 
+                 <'13', $sig_algs>, '40', $prev_g, $prev_g^~y>,
+                prev_nc, prev_ns, $prev_g, prev_sg, prev_hrr, prev_x, ~y, z,
+                $prev_g^~y, z.1, 'na', prev_psk_id, prev_edi,
+                Extract(prev_res_psk, '0'), prev_hs, prev_ms, prev_cats, prev_sats,
+                prev_hs_keyc, prev_hs_keys, <'0', '0'>, prev_ems, prev_rms,
+                prev_cert_req
+     ),
+     MessageOut( <'2', '0x0303', prev_ns, $cipher_suite, 
+                  <'13', $sig_algs>, '40', $prev_g, $prev_g^~y>
+     )
+     ]
+    variants (modulo AC)
+    1. $prev_g
+             = $prev_g.43
+       ~y    = ~y.45
+       some_x
+             = inv(~y.45)
+       z     = $prev_g.43^inv(~y.45)
+       z.1   = $prev_g.43
+    
+    2. $prev_g
+             = $prev_g.43
+       ~y    = ~y.45
+       some_x
+             = one
+       z     = $prev_g.43
+       z.1   = $prev_g.43^~y.45
+    
+    3. $prev_g
+             = $prev_g.68
+       ~y    = ~y.70
+       some_x
+             = some_x.95
+       z     = $prev_g.68^some_x.95
+       z.1   = $prev_g.68^(~y.70*some_x.95)
+    
+    4. $prev_g
+             = $prev_g.491
+       ~y    = ~y.493
+       some_x
+             = inv((~y.493*x.977))
+       z     = $prev_g.491^inv((~y.493*x.977))
+       z.1   = $prev_g.491^inv(x.977)
+    
+    5. $prev_g
+             = $prev_g.491
+       ~y    = ~y.493
+       some_x
+             = (x.977*inv(~y.493))
+       z     = $prev_g.491^(x.977*inv(~y.493))
+       z.1   = $prev_g.491^x.977
+    
+    6. $prev_g
+             = $prev_g.492
+       ~y    = ~y.494
+       some_x
+             = (x.979*inv((~y.494*x.978)))
+       z     = $prev_g.492^(x.979*inv((~y.494*x.978)))
+       z.1   = $prev_g.492^(x.979*inv(x.978))
+  */
+
+rule (modulo E) server_gen_keys:
+   [
+   State_S2a( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+              prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+              prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+              prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+              prev_hs_keys, prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   )
+   ]
+  --[
+  S2a( tid ), Extract( '0', Extract(prev_gxy, prev_es) ),
+  Instance( tid, $S, 'server' ),
+  RHS( tid, $S, 'server', Extract(prev_gxy, prev_es) ),
+  RMS( tid, $S, 'server', Extract('0', Extract(prev_gxy, prev_es)) )
+  ]->
+   [
+   State_S2b( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+              prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+              prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+              prev_es, Extract(prev_gxy, prev_es),
+              Extract('0', Extract(prev_gxy, prev_es)), prev_cats, prev_sats,
+              Expand(Expand(Extract(prev_gxy, prev_es),
+                            <'clienthts', h(prev_messages)>, '32'),
+                     <'kshe_wk', '0'>, '32'),
+              Expand(Expand(Extract(prev_gxy, prev_es),
+                            <'serverhts', h(prev_messages)>, '32'),
+                     <'kshe_wk', '0'>, '32'),
+              prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) encrypted_extensions:
+   [
+   State_S2b( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+              prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+              prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+              prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+              prev_hs_keys, prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   )
+   ]
+  --[ S2b( tid ), Instance( tid, $S, 'server' ) ]->
+   [
+   State_S2c( tid, $S, $C, prev_res_psk, <prev_messages, '8', $exts>,
+              prev_nc, prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y,
+              prev_gx, prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id,
+              prev_edi, prev_es, prev_hs, prev_ms, prev_cats, prev_sats,
+              prev_hs_keyc, prev_hs_keys, prev_auth_status, prev_ems, prev_rms,
+              prev_cert_req
+   ),
+   MessageOut( senc(<'8', $exts>, prev_hs_keys) )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) certificate_request:
+   [
+   State_S2c( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+              prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+              prev_gy, prev_gxy, 'na', prev_psk_id, prev_edi, prev_es, prev_hs,
+              prev_ms, prev_cats, prev_sats, prev_hs_keyc, prev_hs_keys,
+              prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   )
+   ]
+  --[
+  S2c_req( tid ), Instance( tid, $S, 'server' ),
+  RCertReqCtxt( tid, $S, 'server', '0' )
+  ]->
+   [
+   State_S2d( tid, $S, $C, prev_res_psk,
+              <prev_messages, '13', '0', $certificate_extensions>, prev_nc,
+              prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+              prev_gy, prev_gxy, 'na', prev_psk_id, prev_edi, prev_es, prev_hs,
+              prev_ms, prev_cats, prev_sats, prev_hs_keyc, prev_hs_keys,
+              prev_auth_status, prev_ems, prev_rms, '1'
+   ),
+   MessageOut( senc(<'13', '0', $certificate_extensions>,
+                    prev_hs_keys)
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) skip_certificate_request:
+   [
+   State_S2c( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+              prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+              prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+              prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+              prev_hs_keys, prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   )
+   ]
+  --[ S2c( tid ), Instance( tid, $S, 'server' ) ]->
+   [
+   State_S2d( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+              prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+              prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+              prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+              prev_hs_keys, prev_auth_status, prev_ems, prev_rms, '0'
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) server_auth:
+   [
+   State_S2d( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+              prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+              prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+              prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+              prev_hs_keys, prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   ),
+   !Ltk( $S, ~ltkS )
+   ]
+  --[
+  S2d( tid ), Instance( tid, $S, 'server' ),
+  Eq( prev_psk_ke_mode, 'na' ),
+  UseLtk( ~ltkS,
+          sign(<'server_cv', h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+               ~ltkS)
+  ),
+  RTranscript( tid, $S, 'server',
+               <
+                <<prev_messages, '11', '0', pk(~ltkS)>, '15', 
+                 sign(<'server_cv', h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+                      ~ltkS)
+                >, 
+                '20', 
+                hmac(<
+                      Expand(Expand(prev_hs,
+                                    <'serverhts', 
+                                     h(<<prev_messages, '11', '0', pk(~ltkS)>, '15', 
+                                        sign(<'server_cv', h(<prev_messages, '11', '0', pk(~ltkS)>)
+                                             >,
+                                             ~ltkS)
+                                       >)
+                                    >,
+                                    '32'),
+                             <'fin', '0'>, '32'), 
+                      h(<<prev_messages, '11', '0', pk(~ltkS)>, '15', 
+                         sign(<'server_cv', h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+                              ~ltkS)
+                        >)
+                     >)
+               >
+  )
+  ]->
+   [
+   State_S3( tid, $S, $C, prev_res_psk,
+             <
+              <<prev_messages, '11', '0', pk(~ltkS)>, '15', 
+               sign(<'server_cv', h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+                    ~ltkS)
+              >, 
+              '20', 
+              hmac(<
+                    Expand(Expand(prev_hs,
+                                  <'serverhts', 
+                                   h(<<prev_messages, '11', '0', pk(~ltkS)>, '15', 
+                                      sign(<'server_cv', h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+                                           ~ltkS)
+                                     >)
+                                  >,
+                                  '32'),
+                           <'fin', '0'>, '32'), 
+                    h(<<prev_messages, '11', '0', pk(~ltkS)>, '15', 
+                       sign(<'server_cv', h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+                            ~ltkS)
+                      >)
+                   >)
+             >,
+             prev_nc, prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y,
+             prev_gx, prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id,
+             prev_edi, prev_es, prev_hs, prev_ms,
+             Expand(prev_ms,
+                    <'clientats', 
+                     h(<
+                        <<prev_messages, '11', '0', pk(~ltkS)>, '15', 
+                         sign(<'server_cv', h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+                              ~ltkS)
+                        >, 
+                        '20', 
+                        hmac(<
+                              Expand(Expand(prev_hs,
+                                            <'serverhts', 
+                                             h(<<prev_messages, '11', '0', pk(~ltkS)>, '15', 
+                                                sign(<'server_cv', 
+                                                      h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+                                                     ~ltkS)
+                                               >)
+                                            >,
+                                            '32'),
+                                     <'fin', '0'>, '32'), 
+                              h(<<prev_messages, '11', '0', pk(~ltkS)>, '15', 
+                                 sign(<'server_cv', h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+                                      ~ltkS)
+                                >)
+                             >)
+                       >)
+                    >,
+                    '32'),
+             Expand(prev_ms,
+                    <'serverats', 
+                     h(<
+                        <<prev_messages, '11', '0', pk(~ltkS)>, '15', 
+                         sign(<'server_cv', h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+                              ~ltkS)
+                        >, 
+                        '20', 
+                        hmac(<
+                              Expand(Expand(prev_hs,
+                                            <'serverhts', 
+                                             h(<<prev_messages, '11', '0', pk(~ltkS)>, '15', 
+                                                sign(<'server_cv', 
+                                                      h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+                                                     ~ltkS)
+                                               >)
+                                            >,
+                                            '32'),
+                                     <'fin', '0'>, '32'), 
+                              h(<<prev_messages, '11', '0', pk(~ltkS)>, '15', 
+                                 sign(<'server_cv', h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+                                      ~ltkS)
+                                >)
+                             >)
+                       >)
+                    >,
+                    '32'),
+             prev_hs_keyc, prev_hs_keys, <'auth', '0'>,
+             Expand(prev_ms,
+                    <'ems', 
+                     h(<
+                        <<prev_messages, '11', '0', pk(~ltkS)>, '15', 
+                         sign(<'server_cv', h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+                              ~ltkS)
+                        >, 
+                        '20', 
+                        hmac(<
+                              Expand(Expand(prev_hs,
+                                            <'serverhts', 
+                                             h(<<prev_messages, '11', '0', pk(~ltkS)>, '15', 
+                                                sign(<'server_cv', 
+                                                      h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+                                                     ~ltkS)
+                                               >)
+                                            >,
+                                            '32'),
+                                     <'fin', '0'>, '32'), 
+                              h(<<prev_messages, '11', '0', pk(~ltkS)>, '15', 
+                                 sign(<'server_cv', h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+                                      ~ltkS)
+                                >)
+                             >)
+                       >)
+                    >,
+                    '32'),
+             prev_rms, prev_cert_req
+   ),
+   SendStream( tid, $S, $C, <'auth', '0'>,
+               Expand(Expand(prev_ms,
+                             <'serverats', 
+                              h(<
+                                 <<prev_messages, '11', '0', pk(~ltkS)>, '15', 
+                                  sign(<'server_cv', h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+                                       ~ltkS)
+                                 >, 
+                                 '20', 
+                                 hmac(<
+                                       Expand(Expand(prev_hs,
+                                                     <'serverhts', 
+                                                      h(<<prev_messages, '11', '0', pk(~ltkS)>, 
+                                                         '15', 
+                                                         sign(<'server_cv', 
+                                                               h(<prev_messages, '11', '0', 
+                                                                  pk(~ltkS)>)
+                                                              >,
+                                                              ~ltkS)
+                                                        >)
+                                                     >,
+                                                     '32'),
+                                              <'fin', '0'>, '32'), 
+                                       h(<<prev_messages, '11', '0', pk(~ltkS)>, '15', 
+                                          sign(<'server_cv', 
+                                                h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+                                               ~ltkS)
+                                         >)
+                                      >)
+                                >)
+                             >,
+                             '32'),
+                      <'adke_wk', '0'>, '32')
+   ),
+   MessageOut( senc(<<'11', '0', pk(~ltkS)>, 
+                     <'15', 
+                      sign(<'server_cv', h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+                           ~ltkS)
+                     >, 
+                     '20', 
+                     hmac(<
+                           Expand(Expand(prev_hs,
+                                         <'serverhts', 
+                                          h(<<prev_messages, '11', '0', pk(~ltkS)>, '15', 
+                                             sign(<'server_cv', 
+                                                   h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+                                                  ~ltkS)
+                                            >)
+                                         >,
+                                         '32'),
+                                  <'fin', '0'>, '32'), 
+                           h(<<prev_messages, '11', '0', pk(~ltkS)>, '15', 
+                              sign(<'server_cv', h(<prev_messages, '11', '0', pk(~ltkS)>)>,
+                                   ~ltkS)
+                             >)
+                          >)
+                    >,
+                    prev_hs_keys)
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) recv_client_auth:
+   [
+   State_S3( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+             prev_hs_keys, prev_auth_status, prev_ems, prev_rms, '0'
+   ),
+   F_MessageIn( senc(<'20', verify_data>, prev_hs_keyc) )
+   ]
+  --[
+  S3( tid ), Instance( tid, $S, 'server' ),
+  Eq( verify_data,
+      hmac(<
+            Expand(Expand(prev_hs, <'clienthts', h(prev_messages)>, '32'),
+                   <'fin', '0'>, '32'), 
+            h(prev_messages)>)
+  ),
+  SessionKey( $S, $C, 'server',
+              <Expand(prev_cats, <'adke_wk', '0'>, '32'), prev_auth_status>
+  ),
+  CIdentity( tid, $S, 'server', <$C, prev_auth_status> ),
+  CHS( tid, $S, 'server', prev_hs ),
+  RHSMS( tid, $S, 'server', <prev_hs, prev_ms> ),
+  RRMS( tid, $S, 'server',
+        <$C, 
+         Expand(prev_ms, <'rms', h(<prev_messages, '20', verify_data>)>,
+                '32'), 
+         prev_messages, '20', verify_data>
+  ),
+  CTranscript( tid, $S, 'server', <prev_messages, '20', verify_data>
+  ),
+  CNonces( tid, $S, 'server', <prev_nc, prev_ns> )
+  ]->
+   [
+   State_S4( tid, $S, $C, prev_res_psk,
+             <prev_messages, '20', verify_data>, prev_nc, prev_ns, prev_g,
+             prev_sg, prev_hrr, prev_x, prev_y, prev_gx, prev_gy, prev_gxy,
+             prev_psk_ke_mode, prev_psk_id, prev_edi, prev_es, prev_hs, prev_ms,
+             prev_cats, prev_sats, prev_hs_keyc, prev_hs_keys, prev_auth_status,
+             prev_ems,
+             Expand(prev_ms, <'rms', h(<prev_messages, '20', verify_data>)>,
+                    '32'),
+             '0'
+   ),
+   RecvStream( tid, $S, $C, prev_auth_status,
+               Expand(prev_cats, <'adke_wk', '0'>, '32')
+   )
+   ]
+
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) recv_client_auth_cert:
+   [
+   State_S3( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+             prev_hs_keys, prev_auth_status, prev_ems, prev_rms, '1'
+   ),
+   !Pk( $C, pk(~ltkC) ),
+   F_MessageIn( senc(<<'11', '0', pk(~ltkC)>, <'15', signature>, 
+                      '20', verify_data>,
+                     prev_hs_keyc)
+   )
+   ]
+  --[
+  S3_cert( tid ), Instance( tid, $S, 'server' ),
+  Eq( verify(signature,
+             <'client_cv', h(<prev_messages, '11', '0', pk(~ltkC)>)>,
+             pk(~ltkC)),
+      true
+  ),
+  Eq( verify_data,
+      hmac(<
+            Expand(Expand(prev_hs,
+                          <'clienthts', 
+                           h(<<prev_messages, '11', '0', pk(~ltkC)>, '15', signature>)>,
+                          '32'),
+                   <'fin', '0'>, '32'), 
+            h(<<prev_messages, '11', '0', pk(~ltkC)>, '15', signature>)>)
+  ),
+  CIdentity( tid, $S, 'server', <$C, 'auth', 'auth'> ),
+  CHS( tid, $S, 'server', prev_hs ),
+  RHSMS( tid, $S, 'server', <prev_hs, prev_ms> ),
+  RRMS( tid, $S, 'server',
+        <$C, 
+         Expand(prev_ms,
+                <'rms', 
+                 h(<<<prev_messages, '11', '0', pk(~ltkC)>, '15', signature>, '20', 
+                    verify_data>)
+                >,
+                '32'), 
+         <<prev_messages, '11', '0', pk(~ltkC)>, '15', signature>, '20', 
+         verify_data>
+  ),
+  CTranscript( tid, $S, 'server',
+               <<<prev_messages, '11', '0', pk(~ltkC)>, '15', signature>, '20', 
+                verify_data>
+  ),
+  SessionKey( $S, $C, 'server',
+              <Expand(prev_cats, <'adke_wk', '0'>, '32'), 'auth', 'auth'>
+  ),
+  CNonces( tid, $S, 'server', <prev_nc, prev_ns> )
+  ]->
+   [
+   State_S4( tid, $S, $C, prev_res_psk,
+             <<<prev_messages, '11', '0', pk(~ltkC)>, '15', signature>, '20', 
+              verify_data>,
+             prev_nc, prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y,
+             prev_gx, prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id,
+             prev_edi, prev_es, prev_hs, prev_ms, prev_cats, prev_sats,
+             prev_hs_keyc, prev_hs_keys, <'auth', 'auth'>, prev_ems,
+             Expand(prev_ms,
+                    <'rms', 
+                     h(<<<prev_messages, '11', '0', pk(~ltkC)>, '15', signature>, '20', 
+                        verify_data>)
+                    >,
+                    '32'),
+             '0'
+   ),
+   RecvStream( tid, $S, $C, <'auth', 'auth'>,
+               Expand(prev_cats, <'adke_wk', '0'>, '32')
+   )
+   ]
+
+  /*
+  rule (modulo AC) recv_client_auth_cert:
+     [
+     State_S3( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+               prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+               prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+               prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+               prev_hs_keys, prev_auth_status, prev_ems, prev_rms, '1'
+     ),
+     !Pk( $C, pk(~ltkC) ),
+     F_MessageIn( senc(<<'11', '0', pk(~ltkC)>, <'15', signature>, 
+                        '20', verify_data>,
+                       prev_hs_keyc)
+     )
+     ]
+    --[
+    S3_cert( tid ), Instance( tid, $S, 'server' ), Eq( z, true ),
+    Eq( verify_data,
+        hmac(<
+              Expand(Expand(prev_hs,
+                            <'clienthts', 
+                             h(<<prev_messages, '11', '0', pk(~ltkC)>, '15', signature>)>,
+                            '32'),
+                     <'fin', '0'>, '32'), 
+              h(<<prev_messages, '11', '0', pk(~ltkC)>, '15', signature>)>)
+    ),
+    CIdentity( tid, $S, 'server', <$C, 'auth', 'auth'> ),
+    CHS( tid, $S, 'server', prev_hs ),
+    RHSMS( tid, $S, 'server', <prev_hs, prev_ms> ),
+    RRMS( tid, $S, 'server',
+          <$C, 
+           Expand(prev_ms,
+                  <'rms', 
+                   h(<<<prev_messages, '11', '0', pk(~ltkC)>, '15', signature>, '20', 
+                      verify_data>)
+                  >,
+                  '32'), 
+           <<prev_messages, '11', '0', pk(~ltkC)>, '15', signature>, '20', 
+           verify_data>
+    ),
+    CTranscript( tid, $S, 'server',
+                 <<<prev_messages, '11', '0', pk(~ltkC)>, '15', signature>, '20', 
+                  verify_data>
+    ),
+    SessionKey( $S, $C, 'server',
+                <Expand(prev_cats, <'adke_wk', '0'>, '32'), 'auth', 'auth'>
+    ),
+    CNonces( tid, $S, 'server', <prev_nc, prev_ns> )
+    ]->
+     [
+     State_S4( tid, $S, $C, prev_res_psk,
+               <<<prev_messages, '11', '0', pk(~ltkC)>, '15', signature>, '20', 
+                verify_data>,
+               prev_nc, prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y,
+               prev_gx, prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id,
+               prev_edi, prev_es, prev_hs, prev_ms, prev_cats, prev_sats,
+               prev_hs_keyc, prev_hs_keys, <'auth', 'auth'>, prev_ems,
+               Expand(prev_ms,
+                      <'rms', 
+                       h(<<<prev_messages, '11', '0', pk(~ltkC)>, '15', signature>, '20', 
+                          verify_data>)
+                      >,
+                      '32'),
+               '0'
+     ),
+     RecvStream( tid, $S, $C, <'auth', 'auth'>,
+                 Expand(prev_cats, <'adke_wk', '0'>, '32')
+     )
+     ]
+    variants (modulo AC)
+    1. ~ltkC = ~ltkC.58
+       prev_messages
+             = prev_messages.72
+       signature
+             = sign(<'client_cv', h(<prev_messages.72, '11', '0', pk(~ltkC.58)>)
+                    >,
+                    ~ltkC.58)
+       z     = true
+    
+    2. ~ltkC = ~ltkC.70
+       prev_messages
+             = prev_messages.84
+       signature
+             = signature.96
+       z     = verify(signature.96,
+                      <'client_cv', h(<prev_messages.84, '11', '0', pk(~ltkC.70)>)>,
+                      pk(~ltkC.70))
+  */
+
+rule (modulo E) send:
+   [
+   SendStream( ~tid, $actor, $peer, auth_status, app_key_out ),
+   Fr( ~data )
+   ]
+  --[
+  Send( ~tid ), SendData( ~tid, $actor, $peer, auth_status, ~data )
+  ]->
+   [
+   SendStream( ~tid, $actor, $peer, auth_status, app_key_out ),
+   MessageOut( senc(<~data, '23'>, app_key_out) )
+   ]
+
+  // loop breaker: [0]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) recv:
+   [
+   RecvStream( ~tid, $actor, $peer, auth_status, app_key_in ),
+   F_MessageIn( senc(<data, '23'>, app_key_in) )
+   ]
+  --[
+  Recv( ~tid ), RecvData( ~tid, $actor, $peer, auth_status, data )
+  ]->
+   [ RecvStream( ~tid, $actor, $peer, auth_status, app_key_in ) ]
+
+  // loop breaker: [0]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) certificate_request_post:
+   [
+   State_S4( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+             prev_hs_keys, prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   ),
+   SendStream( tid, $S, $C, prev_auth_status, app_keys ),
+   Fr( ~cert_req_ctxt )
+   ]
+  --[
+  S4_req( tid ), Instance( tid, $S, 'server' ),
+  RCertReqCtxt( tid, $S, 'server', ~cert_req_ctxt ),
+  RPostHS( tid, $S, 'server',
+           <prev_hs, prev_rms, $C, prev_auth_status, prev_messages>
+  )
+  ]->
+   [
+   State_S4( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+             prev_hs_keys, prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   ),
+   SendStream( tid, $S, $C, prev_auth_status, app_keys ),
+   ServerCertReq( tid, $S, $C, ~cert_req_ctxt ),
+   MessageOut( senc(<'13', ~cert_req_ctxt, $certificate_extensions>,
+                    app_keys)
+   )
+   ]
+
+  // loop breakers: [0,1]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) recv_certificate_request_post:
+   [
+   State_C4( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+             prev_hs_keys, prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   ),
+   RecvStream( tid, $C, $S, prev_auth_status, app_keys ),
+   F_MessageIn( senc(<'13', certificate_request_context, 
+                      $certificate_extensions>,
+                     app_keys)
+   )
+   ]
+  --[
+  C4_req( tid ), Neq( certificate_request_context, '0' ),
+  Instance( tid, $C, 'client' ),
+  RPostHS( tid, $C, 'client',
+           <prev_hs, prev_rms, $S, prev_auth_status, prev_messages>
+  )
+  ]->
+   [
+   State_C4( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+             prev_hs_keys, prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   ),
+   RecvStream( tid, $C, $S, prev_auth_status, app_keys ),
+   ClientCertReq( tid, $C, $S, certificate_request_context )
+   ]
+
+  // loop breakers: [0,1,2]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) client_auth_post:
+   [
+   State_C4( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+             prev_hs_keys, <prev_cas, prev_sas>, prev_ems, prev_rms,
+             prev_cert_req
+   ),
+   SendStream( tid, $C, $S, <prev_cas, prev_sas>, app_keyc ),
+   !Ltk( $C, ~ltkC ),
+   ClientCertReq( tid, $C, $S, certificate_request_context )
+   ]
+  --[
+  C4_cert( tid ), Instance( tid, $C, 'client' ),
+  Neq( certificate_request_context, '0' ),
+  UseLtk( ~ltkC,
+          sign(<'client_cv', 
+                h(<prev_messages, '13', certificate_request_context, 
+                   $certificate_extensions>)
+               >,
+               ~ltkC)
+  ),
+  RTranscriptPost( tid, $C, 'client',
+                   <prev_messages, certificate_request_context>
+  ),
+  RPostHS( tid, $C, 'client',
+           <prev_hs, prev_rms, $S, <'auth', prev_sas>, prev_messages>
+  )
+  ]->
+   [
+   State_C4( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+             prev_hs_keys, <'auth', prev_sas>, prev_ems, prev_rms, prev_cert_req
+   ),
+   SendStream( tid, $C, $S, <'auth', prev_sas>, app_keyc ),
+   MessageOut( senc(<<'11', certificate_request_context, pk(~ltkC)>, 
+                     <'15', 
+                      sign(<'client_cv', 
+                            h(<prev_messages, '13', certificate_request_context, 
+                               $certificate_extensions>)
+                           >,
+                           ~ltkC)
+                     >, 
+                     '20', 
+                     hmac(<
+                           Expand(Expand(prev_hs,
+                                         <'fin_keychts', 
+                                          h(<prev_messages, '13', certificate_request_context, 
+                                             $certificate_extensions>)
+                                         >,
+                                         '32'),
+                                  <'fin', '0'>, '32'), 
+                           h(<prev_messages, '13', certificate_request_context, 
+                              $certificate_extensions>)
+                          >)
+                    >,
+                    app_keyc)
+   )
+   ]
+
+  // loop breakers: [0,1]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) recv_client_auth_post:
+   [
+   State_S4( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+             prev_hs_keys, <prev_sas, prev_cas>, prev_ems, prev_rms,
+             prev_cert_req
+   ),
+   RecvStream( tid, $S, $C, <prev_sas, prev_cas>, app_keyc ),
+   !Pk( $C, pk(~ltkC) ), ServerCertReq( tid, $S, $C, ~cert_req_ctxt ),
+   F_MessageIn( senc(<<'11', ~cert_req_ctxt, pk(~ltkC)>, 
+                      <'15', signature>, '20', verify_data>,
+                     app_keyc)
+   )
+   ]
+  --[
+  S4_cert( tid ), Instance( tid, $S, 'server' ),
+  Neq( ~cert_req_ctxt, '0' ),
+  Eq( verify(signature,
+             <'client_cv', 
+              h(<prev_messages, '13', ~cert_req_ctxt, $certificate_extensions>)>,
+             pk(~ltkC)),
+      true
+  ),
+  Eq( verify_data,
+      hmac(<
+            Expand(Expand(prev_hs,
+                          <'fin_keychts', 
+                           h(<prev_messages, '13', ~cert_req_ctxt, $certificate_extensions>)>,
+                          '32'),
+                   <'fin', '0'>, '32'), 
+            h(<prev_messages, '13', ~cert_req_ctxt, $certificate_extensions>)>)
+  ),
+  CIdentityPost( tid, $S, 'server', <$C, prev_sas, 'auth'> ),
+  CTranscriptPost( tid, $S, 'server', <prev_messages, ~cert_req_ctxt>
+  ),
+  CHS( tid, $S, 'server', prev_hs ),
+  RPostHS( tid, $S, 'server',
+           <prev_hs, prev_rms, $C, <prev_sas, 'auth'>, prev_messages>
+  )
+  ]->
+   [
+   State_S4( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+             prev_hs_keys, <prev_sas, 'auth'>, prev_ems, prev_rms, prev_cert_req
+   ),
+   RecvStream( tid, $S, $C, <prev_sas, 'auth'>, app_keyc )
+   ]
+
+  // loop breakers: [1,0]
+  /*
+  rule (modulo AC) recv_client_auth_post:
+     [
+     State_S4( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+               prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+               prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+               prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+               prev_hs_keys, <prev_sas, prev_cas>, prev_ems, prev_rms,
+               prev_cert_req
+     ),
+     RecvStream( tid, $S, $C, <prev_sas, prev_cas>, app_keyc ),
+     !Pk( $C, pk(~ltkC) ), ServerCertReq( tid, $S, $C, ~cert_req_ctxt ),
+     F_MessageIn( senc(<<'11', ~cert_req_ctxt, pk(~ltkC)>, 
+                        <'15', signature>, '20', verify_data>,
+                       app_keyc)
+     )
+     ]
+    --[
+    S4_cert( tid ), Instance( tid, $S, 'server' ),
+    Neq( ~cert_req_ctxt, '0' ), Eq( z, true ),
+    Eq( verify_data,
+        hmac(<
+              Expand(Expand(prev_hs,
+                            <'fin_keychts', 
+                             h(<prev_messages, '13', ~cert_req_ctxt, $certificate_extensions>)>,
+                            '32'),
+                     <'fin', '0'>, '32'), 
+              h(<prev_messages, '13', ~cert_req_ctxt, $certificate_extensions>)>)
+    ),
+    CIdentityPost( tid, $S, 'server', <$C, prev_sas, 'auth'> ),
+    CTranscriptPost( tid, $S, 'server', <prev_messages, ~cert_req_ctxt>
+    ),
+    CHS( tid, $S, 'server', prev_hs ),
+    RPostHS( tid, $S, 'server',
+             <prev_hs, prev_rms, $C, <prev_sas, 'auth'>, prev_messages>
+    )
+    ]->
+     [
+     State_S4( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+               prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+               prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+               prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+               prev_hs_keys, <prev_sas, 'auth'>, prev_ems, prev_rms, prev_cert_req
+     ),
+     RecvStream( tid, $S, $C, <prev_sas, 'auth'>, app_keyc )
+     ]
+    variants (modulo AC)
+    1. $certificate_extensions
+             = $certificate_extensions.63
+       ~cert_req_ctxt
+             = ~cert_req_ctxt.64
+       ~ltkC = ~ltkC.65
+       prev_messages
+             = prev_messages.81
+       signature
+             = sign(<'client_cv', 
+                     h(<prev_messages.81, '13', ~cert_req_ctxt.64, 
+                        $certificate_extensions.63>)
+                    >,
+                    ~ltkC.65)
+       z     = true
+    
+    2. $certificate_extensions
+             = $certificate_extensions.76
+       ~cert_req_ctxt
+             = ~cert_req_ctxt.77
+       ~ltkC = ~ltkC.78
+       prev_messages
+             = prev_messages.94
+       signature
+             = signature.107
+       z     = verify(signature.107,
+                      <'client_cv', 
+                       h(<prev_messages.94, '13', ~cert_req_ctxt.77, 
+                          $certificate_extensions.76>)
+                      >,
+                      pk(~ltkC.78))
+    // loop breakers: [1,0]
+  */
+
+rule (modulo E) update_req_client:
+   [
+   State_C4( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+             prev_hs_keys, prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   ),
+   SendStream( tid, $C, $S, prev_auth_status, prev_app_keyc )
+   ]
+  --[
+  C4_update_req( tid ), Instance( tid, $C, 'client' ),
+  RPostHS( tid, $C, 'client',
+           <prev_hs, prev_rms, $S, prev_auth_status, prev_messages>
+  )
+  ]->
+   [
+   State_C4( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, Expand(prev_cats, <'ats', '0'>, '32'),
+             prev_sats, prev_hs_keyc, prev_hs_keys, prev_auth_status, prev_ems,
+             prev_rms, prev_cert_req
+   ),
+   SendStream( tid, $C, $S, prev_auth_status,
+               Expand(Expand(prev_cats, <'ats', '0'>, '32'), <'adke_wk', '0'>,
+                      '32')
+   ),
+   MessageOut( senc(<'24', '1'>, prev_app_keyc) )
+   ]
+
+  // loop breakers: [0,1]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) update_req_server:
+   [
+   State_S4( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+             prev_hs_keys, prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   ),
+   SendStream( tid, $S, $C, prev_auth_status, prev_app_keys )
+   ]
+  --[
+  S4_update_req( tid ), Instance( tid, $S, 'server' ),
+  RPostHS( tid, $S, 'server',
+           <prev_hs, prev_rms, $C, prev_auth_status, prev_messages>
+  )
+  ]->
+   [
+   State_S4( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats,
+             Expand(prev_sats, <'ats', '0'>, '32'), prev_hs_keyc, prev_hs_keys,
+             prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   ),
+   SendStream( tid, $S, $C, prev_auth_status,
+               Expand(Expand(prev_sats, <'ats', '0'>, '32'), <'adke_wk', '0'>,
+                      '32')
+   ),
+   MessageOut( senc(<'24', '1'>, prev_app_keys) )
+   ]
+
+  // loop breakers: [0,1]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) update_recv_client:
+   [
+   State_C4( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+             prev_hs_keys, prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   ),
+   RecvStream( tid, $C, $S, prev_auth_status, prev_app_keys ),
+   SendStream( tid, $C, $S, prev_auth_status, prev_app_keyc ),
+   F_MessageIn( senc(<'24', '1'>, prev_app_keys) )
+   ]
+  --[
+  C4_update_recv( tid ), Instance( tid, $C, 'client' ),
+  RPostHS( tid, $C, 'client',
+           <prev_hs, prev_rms, $S, prev_auth_status, prev_messages>
+  )
+  ]->
+   [
+   State_C4( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, Expand(prev_cats, <'ats', '0'>, '32'),
+             Expand(prev_sats, <'ats', '0'>, '32'), prev_hs_keyc, prev_hs_keys,
+             prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   ),
+   RecvStream( tid, $C, $S, prev_auth_status,
+               Expand(Expand(prev_sats, <'ats', '0'>, '32'), <'adke_wk', '0'>,
+                      '32')
+   ),
+   SendStream( tid, $C, $S, prev_auth_status,
+               Expand(Expand(prev_cats, <'ats', '0'>, '32'), <'adke_wk', '0'>,
+                      '32')
+   ),
+   MessageOut( senc(<'24', '0'>, prev_app_keyc) )
+   ]
+
+  // loop breakers: [0,1,2,3]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) update_recv_server:
+   [
+   State_S4( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+             prev_hs_keys, prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   ),
+   RecvStream( tid, $S, $C, prev_auth_status, prev_app_keyc ),
+   SendStream( tid, $S, $C, prev_auth_status, prev_app_keys ),
+   F_MessageIn( senc(<'24', '1'>, prev_app_keyc) )
+   ]
+  --[
+  S4_update_recv( tid ), Instance( tid, $S, 'server' ),
+  RPostHS( tid, $S, 'server',
+           <prev_hs, prev_rms, $C, prev_auth_status, prev_messages>
+  )
+  ]->
+   [
+   State_S4( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, Expand(prev_cats, <'ats', '0'>, '32'),
+             Expand(prev_sats, <'ats', '0'>, '32'), prev_hs_keyc, prev_hs_keys,
+             prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   ),
+   RecvStream( tid, $S, $C, prev_auth_status,
+               Expand(Expand(prev_cats, <'ats', '0'>, '32'), <'adke_wk', '0'>,
+                      '32')
+   ),
+   SendStream( tid, $S, $C, prev_auth_status,
+               Expand(Expand(prev_sats, <'ats', '0'>, '32'), <'adke_wk', '0'>,
+                      '32')
+   ),
+   MessageOut( senc(<'24', '0'>, prev_app_keys) )
+   ]
+
+  // loop breakers: [0,1,2,3]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) update_fin_client:
+   [
+   State_C4( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+             prev_hs_keys, prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   ),
+   RecvStream( tid, $C, $S, prev_auth_status, prev_app_keys ),
+   F_MessageIn( senc(<'24', '0'>, prev_app_keys) )
+   ]
+  --[
+  C4_update_fin( tid ), Instance( tid, $C, 'client' ),
+  RPostHS( tid, $C, 'client',
+           <prev_hs, prev_rms, $S, prev_auth_status, prev_messages>
+  )
+  ]->
+   [
+   State_C4( tid, $C, $S, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats,
+             Expand(prev_sats, <'ats', '0'>, '32'), prev_hs_keyc, prev_hs_keys,
+             prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   ),
+   RecvStream( tid, $C, $S, prev_auth_status,
+               Expand(Expand(prev_sats, <'ats', '0'>, '32'), <'adke_wk', '0'>,
+                      '32')
+   )
+   ]
+
+  // loop breakers: [1,0]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) update_fin_server:
+   [
+   State_S4( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc,
+             prev_hs_keys, prev_auth_status, prev_ems, prev_rms, prev_cert_req
+   ),
+   RecvStream( tid, $S, $C, prev_auth_status, prev_app_keyc ),
+   F_MessageIn( senc(<'24', '0'>, prev_app_keyc) )
+   ]
+  --[
+  S4_update_fin( tid ), Instance( tid, $S, 'server' ),
+  RPostHS( tid, $S, 'server',
+           <prev_hs, prev_rms, $C, prev_auth_status, prev_messages>
+  )
+  ]->
+   [
+   State_S4( tid, $S, $C, prev_res_psk, prev_messages, prev_nc,
+             prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y, prev_gx,
+             prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id, prev_edi,
+             prev_es, prev_hs, prev_ms, Expand(prev_cats, <'ats', '0'>, '32'),
+             prev_sats, prev_hs_keyc, prev_hs_keys, prev_auth_status, prev_ems,
+             prev_rms, prev_cert_req
+   ),
+   RecvStream( tid, $S, $C, prev_auth_status,
+               Expand(Expand(prev_cats, <'ats', '0'>, '32'), <'adke_wk', '0'>,
+                      '32')
+   )
+   ]
+
+  // loop breakers: [1,0]
+  /* has exactly the trivial AC variant */
+
+rule (modulo E) in_out:
+   [ MessageOut( m ) ] --> [ F_MessageIn( m ) ]
+
+  /* has exactly the trivial AC variant */
+
+lemma one_C2d_per_tid [reuse]:
+  all-traces
+  "∀ tid #i #j. ((C2d( tid ) @ #i) ∧ (C2d( tid ) @ #j)) ⇒ (#i = #j)"
+/*
+guarded formula characterizing all counter-examples:
+"∃ tid #i #j. (C2d( tid ) @ #i) ∧ (C2d( tid ) @ #j) ∧ ¬(#i = #j)"
+*/
+by sorry
+
+lemma one_S2d_per_tid [reuse]:
+  all-traces
+  "∀ tid #i #j. ((S2d( tid ) @ #i) ∧ (S2d( tid ) @ #j)) ⇒ (#i = #j)"
+/*
+guarded formula characterizing all counter-examples:
+"∃ tid #i #j. (S2d( tid ) @ #i) ∧ (S2d( tid ) @ #j) ∧ ¬(#i = #j)"
+*/
+by sorry
+
+lemma one_C3_per_tid [reuse]:
+  all-traces
+  "∀ tid #i #j. ((C3( tid ) @ #i) ∧ (C3( tid ) @ #j)) ⇒ (#i = #j)"
+/*
+guarded formula characterizing all counter-examples:
+"∃ tid #i #j. (C3( tid ) @ #i) ∧ (C3( tid ) @ #j) ∧ ¬(#i = #j)"
+*/
+by sorry
+
+lemma one_C3_cert_per_tid [reuse]:
+  all-traces
+  "∀ tid #i #j.
+    ((C3_cert( tid ) @ #i) ∧ (C3_cert( tid ) @ #j)) ⇒ (#i = #j)"
+/*
+guarded formula characterizing all counter-examples:
+"∃ tid #i #j.
+  (C3_cert( tid ) @ #i) ∧ (C3_cert( tid ) @ #j) ∧ ¬(#i = #j)"
+*/
+by sorry
+
+lemma one_S3_per_tid [reuse]:
+  all-traces
+  "∀ tid #i #j. ((S3( tid ) @ #i) ∧ (S3( tid ) @ #j)) ⇒ (#i = #j)"
+/*
+guarded formula characterizing all counter-examples:
+"∃ tid #i #j. (S3( tid ) @ #i) ∧ (S3( tid ) @ #j) ∧ ¬(#i = #j)"
+*/
+by sorry
+
+lemma one_S3_cert_per_tid [reuse]:
+  all-traces
+  "∀ tid #i #j.
+    ((S3_cert( tid ) @ #i) ∧ (S3_cert( tid ) @ #j)) ⇒ (#i = #j)"
+/*
+guarded formula characterizing all counter-examples:
+"∃ tid #i #j.
+  (S3_cert( tid ) @ #i) ∧ (S3_cert( tid ) @ #j) ∧ ¬(#i = #j)"
+*/
+by sorry
+
+lemma s3_vs_s3_cert [reuse]:
+  all-traces
+  "∀ tid #i #j. ((S3( tid ) @ #i) ∧ (S3_cert( tid ) @ #j)) ⇒ (⊥)"
+/*
+guarded formula characterizing all counter-examples:
+"∃ tid #i #j. (S3( tid ) @ #i) ∧ (S3_cert( tid ) @ #j)"
+*/
+by sorry
+
+lemma c3_vs_c3_cert [reuse]:
+  all-traces
+  "∀ tid #i #j. ((C3( tid ) @ #i) ∧ (C3_cert( tid ) @ #j)) ⇒ (⊥)"
+/*
+guarded formula characterizing all counter-examples:
+"∃ tid #i #j. (C3( tid ) @ #i) ∧ (C3_cert( tid ) @ #j)"
+*/
+by sorry
+
+lemma server_agree_auth [reuse]:
+  all-traces
+  "∀ tid tid2 actor peer auth_status_client auth_status_server data
+     #i #j.
+    ((SendData( tid, actor, peer, <'auth', auth_status_server>, data
+      ) @ #i) ∧
+     (RecvData( tid2, peer, actor,
+                <auth_status_server, auth_status_client>, data
+      ) @ #j)) ⇒
+    (∃ #k.
+      (CIdentity( tid2, peer, 'server',
+                  <actor, auth_status_server, 'auth'>
+       ) @ #k) ∧
+      (#i < #k))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ tid tid2 actor peer auth_status_client auth_status_server data
+   #i #j.
+  (SendData( tid, actor, peer, <'auth', auth_status_server>, data
+   ) @ #i) ∧
+  (RecvData( tid2, peer, actor,
+             <auth_status_server, auth_status_client>, data
+   ) @ #j)
+ ∧
+  ∀ #k.
+   (CIdentity( tid2, peer, 'server',
+               <actor, auth_status_server, 'auth'>
+    ) @ #k)
+  ⇒
+   ¬(#i < #k)"
+*/
+simplify
+solve( F_MessageIn( senc(<~data, '23'>, app_key_in) ) ▶₁ #j )
+  case in_out
+  solve( SendStream( ~tid, $actor, $peer,
+                     <'auth', auth_status_server>, app_key_in
+         ) ▶₀ #i )
+    case certificate_request_post
+    by sorry
+  next
+    case client_auth_cert_case_1
+    by sorry
+  next
+    case client_auth_cert_case_2
+    by sorry
+  next
+    case client_auth_post
+    solve( State_C4( ~tid, $actor, $peer, prev_res_psk, prev_messages,
+                     prev_nc, prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y,
+                     prev_gx, prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id,
+                     prev_edi, prev_es, prev_hs, prev_ms, prev_cats, prev_sats,
+                     prev_hs_keyc, prev_hs_keys, <prev_cas, auth_status_server>,
+                     prev_ems, prev_rms, prev_cert_req
+           ) ▶₀ #vr.1 )
+      case client_auth_case_1
+      by sorry
+    next
+      case client_auth_case_2
+      by sorry
+    next
+      case client_auth_cert_case_1
+      by sorry
+    next
+      case client_auth_cert_case_2
+      by sorry
+    next
+      case client_auth_post
+      by sorry
+    next
+      case recv_certificate_request_post
+      solve( F_MessageIn( senc(<'13', certificate_request_context, 
+                                $certificate_extensions.1>,
+                               app_keys)
+             ) ▶₂ #vr.3 )
+        case in_out_case_1
+        by contradiction /* from formulas */
+      next
+        case in_out_case_2
+        solve( State_C4( ~tid, $actor, $peer, prev_res_psk.1,
+                         prev_messages.1, prev_nc.1, prev_ns.1, prev_g.1, prev_sg.1,
+                         prev_hrr.1, prev_x.1, prev_y.1, prev_gx.1, prev_gy.1, prev_gxy.1,
+                         prev_psk_ke_mode.1, prev_psk_id.1, prev_edi.1, prev_es.1,
+                         prev_hs.1, prev_ms.1, prev_cats.1, prev_sats.1, prev_hs_keyc.1,
+                         prev_hs_keys.1, prev_auth_status, prev_ems.1, prev_rms.1,
+                         prev_cert_req.1
+               ) ▶₀ #vr.3 )
+          case client_auth_case_1
+          solve( State_C4( ~tid, $actor, $peer, prev_res_psk, prev_messages,
+                           prev_nc, prev_ns, prev_g, prev_sg, prev_hrr, prev_x, prev_y,
+                           prev_gx, prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id,
+                           prev_edi, prev_es, prev_hs, prev_ms, prev_cats, prev_sats,
+                           prev_hs_keyc, prev_hs_keys, <prev_cas, auth_status_server>,
+                           prev_ems, prev_rms, prev_cert_req
+                 ) ▶₀ #vr.4 )
+            case client_auth
+            solve( State_S4( tid.2, $S, $C, prev_res_psk, prev_messages,
+                             prev_nc, prev_ns.1, prev_g, prev_sg, prev_hrr, prev_x, prev_y,
+                             prev_gx, prev_gy.1, prev_gxy.1, prev_psk_ke_mode, prev_psk_id,
+                             prev_edi, prev_es, prev_hs, prev_ms, prev_cats, prev_sats,
+                             prev_hs_keyc, prev_hs_keys, prev_auth_status, prev_ems, prev_rms,
+                             prev_cert_req
+                   ) ▶₀ #vr.5 )
+              case certificate_request_post
+              by sorry
+            next
+              case recv_client_auth_case_1
+              solve( State_S0( tid.2, $S, $C, '0', '0', prev_nc, prev_ns.1,
+                               prev_g, $g1, prev_hrr, prev_x, prev_y, prev_gx, prev_gy.1,
+                               prev_gxy.1, prev_psk_ke_mode, prev_psk_id, prev_edi, prev_es,
+                               prev_hs, prev_ms, prev_cats, prev_sats, prev_hs_keyc, prev_hs_keys,
+                               prev_auth_status, prev_ems, prev_rms, prev_cert_req
+                     ) ▶₂ #vr.26 )
+                case start_server
+                solve( F_MessageIn( senc(<<'11', '0', pk(~ltkS)>, 
+                                          <'15', 
+                                           sign(<'server_cv', 
+                                                 h(<
+                                                    <
+                                                     <
+                                                      <'0', '1', '0x0303', ~tid, '0', 
+                                                       $cipher_suites, '0', <'43', '0x0304'>, 
+                                                       <'10', $g, $g2>, <'13', $sig_algs>, '40', 
+                                                       $g, $g^~x>, 
+                                                      '2', '0x0303', prev_ns, $cipher_suite, 
+                                                      <'13', $sig_algs.1>, '40', $g, prev_gy>, 
+                                                     '8', $exts>, 
+                                                    '11', '0', pk(~ltkS)>)
+                                                >,
+                                                ~ltkS)
+                                          >, 
+                                          '20', 
+                                          hmac(<
+                                                Expand(Expand(Extract(prev_gxy, Extract('0', '0')),
+                                                              <'serverhts', 
+                                                               h(<
+                                                                  <
+                                                                   <
+                                                                    <
+                                                                     <'0', '1', '0x0303', ~tid, 
+                                                                      '0', $cipher_suites, '0', 
+                                                                      <'43', '0x0304'>, 
+                                                                      <'10', $g, $g2>, 
+                                                                      <'13', $sig_algs>, '40', $g, 
+                                                                      $g^~x>, 
+                                                                     '2', '0x0303', prev_ns, 
+                                                                     $cipher_suite, 
+                                                                     <'13', $sig_algs.1>, '40', $g, 
+                                                                     prev_gy>, 
+                                                                    '8', $exts>, 
+                                                                   '11', '0', pk(~ltkS)>, 
+                                                                  '15', 
+                                                                  sign(<'server_cv', 
+                                                                        h(<
+                                                                           <
+                                                                            <
+                                                                             <'0', '1', '0x0303', 
+                                                                              ~tid, '0', 
+                                                                              $cipher_suites, '0', 
+                                                                              <'43', '0x0304'>, 
+                                                                              <'10', $g, $g2>, 
+                                                                              <'13', $sig_algs>, 
+                                                                              '40', $g, $g^~x>, 
+                                                                             '2', '0x0303', 
+                                                                             prev_ns, 
+                                                                             $cipher_suite, 
+                                                                             <'13', $sig_algs.1>, 
+                                                                             '40', $g, prev_gy>, 
+                                                                            '8', $exts>, 
+                                                                           '11', '0', pk(~ltkS)>)
+                                                                       >,
+                                                                       ~ltkS)
+                                                                 >)
+                                                              >,
+                                                              '32'),
+                                                       <'fin', '0'>, '32'), 
+                                                h(<
+                                                   <
+                                                    <
+                                                     <
+                                                      <'0', '1', '0x0303', ~tid, '0', 
+                                                       $cipher_suites, '0', <'43', '0x0304'>, 
+                                                       <'10', $g, $g2>, <'13', $sig_algs>, '40', 
+                                                       $g, $g^~x>, 
+                                                      '2', '0x0303', prev_ns, $cipher_suite, 
+                                                      <'13', $sig_algs.1>, '40', $g, prev_gy>, 
+                                                     '8', $exts>, 
+                                                    '11', '0', pk(~ltkS)>, 
+                                                   '15', 
+                                                   sign(<'server_cv', 
+                                                         h(<
+                                                            <
+                                                             <
+                                                              <'0', '1', '0x0303', ~tid, '0', 
+                                                               $cipher_suites, '0', 
+                                                               <'43', '0x0304'>, <'10', $g, $g2>, 
+                                                               <'13', $sig_algs>, '40', $g, $g^~x>, 
+                                                              '2', '0x0303', prev_ns, 
+                                                              $cipher_suite, <'13', $sig_algs.1>, 
+                                                              '40', $g, prev_gy>, 
+                                                             '8', $exts>, 
+                                                            '11', '0', pk(~ltkS)>)
+                                                        >,
+                                                        ~ltkS)
+                                                  >)
+                                               >)
+                                         >,
+                                         Expand(Expand(Extract(prev_gxy, Extract('0', '0')),
+                                                       <'serverhts', 
+                                                        h(<
+                                                           <'0', '1', '0x0303', ~tid, '0', 
+                                                            $cipher_suites, '0', <'43', '0x0304'>, 
+                                                            <'10', $g, $g2>, <'13', $sig_algs>, 
+                                                            '40', $g, $g^~x>, 
+                                                           '2', '0x0303', prev_ns, $cipher_suite, 
+                                                           <'13', $sig_algs.1>, '40', $g, prev_gy>)
+                                                       >,
+                                                       '32'),
+                                                <'kshe_wk', '0'>, '32'))
+                       ) ▶₂ #vr.7 )
+                  case in_out
+                  solve( F_MessageIn( senc(<'8', $exts>,
+                                           Expand(Expand(Extract($g^(~new_y*~x), Extract('0', '0')),
+                                                         <'serverhts', 
+                                                          h(<
+                                                             <'0', '1', '0x0303', ~tid, '0', 
+                                                              $cipher_suites, '0', 
+                                                              <'43', '0x0304'>, <'10', $g, $g2>, 
+                                                              <'13', $sig_algs>, '40', $g, $g^~x>, 
+                                                             '2', '0x0303', ~new_ns, $cipher_suite, 
+                                                             <'13', $sig_algs.1>, '40', $g, 
+                                                             $g^~new_y>)
+                                                         >,
+                                                         '32'),
+                                                  <'kshe_wk', '0'>, '32'))
+                         ) ▶₁ #vr.10 )
+                    case in_out
+                    solve( F_MessageIn( <'2', '0x0303', ~new_ns, $cipher_suite, 
+                                         <'13', $sig_algs.1>, '40', $g, $g^~new_y>
+                           ) ▶₁ #vr.12 )
+                      case in_out
+                      solve( F_MessageIn( senc(<<'11', '0', pk(~ltkS.1)>, 
+                                                <'15', 
+                                                 sign(<'server_cv', 
+                                                       h(<
+                                                          <
+                                                           <
+                                                            <'0', '1', '0x0303', ~nc, '0', 
+                                                             $cipher_suites.1, '0', 
+                                                             <'43', '0x0304'>, <'10', $g1, $g2.1>, 
+                                                             <'13', $sig_algs.2>, '40', $g1, 
+                                                             $g1^~x.1>, 
+                                                            '2', '0x0303', ~new_ns.1, 
+                                                            $cipher_suite.1, <'13', $sig_algs.3>, 
+                                                            '40', $g1, $g1^~y>, 
+                                                           '8', $exts.1>, 
+                                                          '11', '0', pk(~ltkS.1)>)
+                                                      >,
+                                                      ~ltkS.1)
+                                                >, 
+                                                '20', 
+                                                hmac(<
+                                                      Expand(Expand(Extract($g1^(~y*~x.1),
+                                                                            Extract('0', '0')),
+                                                                    <'serverhts', 
+                                                                     h(<
+                                                                        <
+                                                                         <
+                                                                          <
+                                                                           <'0', '1', '0x0303', 
+                                                                            ~nc, '0', 
+                                                                            $cipher_suites.1, '0', 
+                                                                            <'43', '0x0304'>, 
+                                                                            <'10', $g1, $g2.1>, 
+                                                                            <'13', $sig_algs.2>, 
+                                                                            '40', $g1, $g1^~x.1>, 
+                                                                           '2', '0x0303', 
+                                                                           ~new_ns.1, 
+                                                                           $cipher_suite.1, 
+                                                                           <'13', $sig_algs.3>, 
+                                                                           '40', $g1, $g1^~y>, 
+                                                                          '8', $exts.1>, 
+                                                                         '11', '0', pk(~ltkS.1)>, 
+                                                                        '15', 
+                                                                        sign(<'server_cv', 
+                                                                              h(<
+                                                                                 <
+                                                                                  <
+                                                                                   <'0', '1', 
+                                                                                    '0x0303', ~nc, 
+                                                                                    '0', 
+                                                                                    $cipher_suites.1, 
+                                                                                    '0', 
+                                                                                    <'43', '0x0304'
+                                                                                    >, 
+                                                                                    <'10', $g1, 
+                                                                                     $g2.1>, 
+                                                                                    <'13', 
+                                                                                     $sig_algs.2>, 
+                                                                                    '40', $g1, 
+                                                                                    $g1^~x.1>, 
+                                                                                   '2', '0x0303', 
+                                                                                   ~new_ns.1, 
+                                                                                   $cipher_suite.1, 
+                                                                                   <'13', 
+                                                                                    $sig_algs.3>, 
+                                                                                   '40', $g1, $g1^~y
+                                                                                  >, 
+                                                                                  '8', $exts.1>, 
+                                                                                 '11', '0', 
+                                                                                 pk(~ltkS.1)>)
+                                                                             >,
+                                                                             ~ltkS.1)
+                                                                       >)
+                                                                    >,
+                                                                    '32'),
+                                                             <'fin', '0'>, '32'), 
+                                                      h(<
+                                                         <
+                                                          <
+                                                           <
+                                                            <'0', '1', '0x0303', ~nc, '0', 
+                                                             $cipher_suites.1, '0', 
+                                                             <'43', '0x0304'>, <'10', $g1, $g2.1>, 
+                                                             <'13', $sig_algs.2>, '40', $g1, 
+                                                             $g1^~x.1>, 
+                                                            '2', '0x0303', ~new_ns.1, 
+                                                            $cipher_suite.1, <'13', $sig_algs.3>, 
+                                                            '40', $g1, $g1^~y>, 
+                                                           '8', $exts.1>, 
+                                                          '11', '0', pk(~ltkS.1)>, 
+                                                         '15', 
+                                                         sign(<'server_cv', 
+                                                               h(<
+                                                                  <
+                                                                   <
+                                                                    <'0', '1', '0x0303', ~nc, '0', 
+                                                                     $cipher_suites.1, '0', 
+                                                                     <'43', '0x0304'>, 
+                                                                     <'10', $g1, $g2.1>, 
+                                                                     <'13', $sig_algs.2>, '40', 
+                                                                     $g1, $g1^~x.1>, 
+                                                                    '2', '0x0303', ~new_ns.1, 
+                                                                    $cipher_suite.1, 
+                                                                    <'13', $sig_algs.3>, '40', $g1, 
+                                                                    $g1^~y>, 
+                                                                   '8', $exts.1>, 
+                                                                  '11', '0', pk(~ltkS.1)>)
+                                                              >,
+                                                              ~ltkS.1)
+                                                        >)
+                                                     >)
+                                               >,
+                                               Expand(Expand(Extract($g1^(~y*~x.1),
+                                                                     Extract('0', '0')),
+                                                             <'serverhts', 
+                                                              h(<
+                                                                 <'0', '1', '0x0303', ~nc, '0', 
+                                                                  $cipher_suites.1, '0', 
+                                                                  <'43', '0x0304'>, 
+                                                                  <'10', $g1, $g2.1>, 
+                                                                  <'13', $sig_algs.2>, '40', $g1, 
+                                                                  $g1^~x.1>, 
+                                                                 '2', '0x0303', ~new_ns.1, 
+                                                                 $cipher_suite.1, 
+                                                                 <'13', $sig_algs.3>, '40', $g1, 
+                                                                 $g1^~y>)
+                                                             >,
+                                                             '32'),
+                                                      <'kshe_wk', '0'>, '32'))
+                             ) ▶₂ #vr.21 )
+                        case in_out
+                        solve( F_MessageIn( senc(<'8', $exts.1>,
+                                                 Expand(Expand(Extract($g1^(~y*~x.1),
+                                                                       Extract('0', '0')),
+                                                               <'serverhts', 
+                                                                h(<
+                                                                   <'0', '1', '0x0303', ~nc, '0', 
+                                                                    $cipher_suites.1, '0', 
+                                                                    <'43', '0x0304'>, 
+                                                                    <'10', $g1, $g2.1>, 
+                                                                    <'13', $sig_algs.2>, '40', $g1, 
+                                                                    $g1^~x.1>, 
+                                                                   '2', '0x0303', ~new_ns.1, 
+                                                                   $cipher_suite.1, 
+                                                                   <'13', $sig_algs.3>, '40', $g1, 
+                                                                   $g1^~y>)
+                                                               >,
+                                                               '32'),
+                                                        <'kshe_wk', '0'>, '32'))
+                               ) ▶₁ #vr.25 )
+                          case in_out
+                          solve( F_MessageIn( <'1', '0x0303', ~nc, '0', $cipher_suites.1, 
+                                               '0', <'43', '0x0304'>, <'10', $g1, $g2.1>, 
+                                               <'13', $sig_algs.2>, '40', $g1, $g1^~x.1>
+                                 ) ▶₀ #vr.26 )
+                            case in_out
+                            solve( F_MessageIn( <'1', '0x0303', ~tid, '0', $cipher_suites, 
+                                                 '0', <'43', '0x0304'>, <'10', $g, $g2>, 
+                                                 <'13', $sig_algs>, '40', $g, $g^~x>
+                                   ) ▶₀ #vr.37 )
+                              case in_out
+                              solve( F_MessageIn( <'2', '0x0303', ~new_ns.1, $cipher_suite.1, 
+                                                   <'13', $sig_algs.3>, '40', $g1, $g1^~y>
+                                     ) ▶₁ #vr.28 )
+                                case in_out
+                                solve( State_S0( tid.3, $peer, $C.2, '0', '0', prev_nc, prev_ns,
+                                                 prev_g, $g, prev_hrr, prev_x, prev_y, prev_gx,
+                                                 prev_gy, prev_gxy, prev_psk_ke_mode, prev_psk_id,
+                                                 prev_edi, prev_es, prev_hs, prev_ms, prev_cats,
+                                                 prev_sats, prev_hs_keyc, prev_hs_keys,
+                                                 prev_auth_status, prev_ems, prev_rms, prev_cert_req
+                                       ) ▶₂ #vr.37 )
+                                  case start_server
+                                  solve( RecvStream( ~tid.1, $peer, $actor,
+                                                     <'auth', auth_status_client>, app_key_in
+                                         ) ▶₀ #j )
+                                    case recv_case_1
+                                    by sorry
+                                  next
+                                    case recv_case_2
+                                    by sorry
+                                  next
+                                    case recv_certificate_request_post
+                                    by sorry
+                                  next
+                                    case recv_client_auth_case_1
+                                    solve( F_MessageIn( <'1', '0x0303', ~nc, '0', $cipher_suites, 
+                                                         '0', <'43', '0x0304'>, <'10', $g1, $g2>, 
+                                                         <'13', $sig_algs>, '40', $g1, $g1^~x>
+                                           ) ▶₀ #vr.57 )
+                                      case in_out
+                                      solve( F_MessageIn( <'2', '0x0303', ~new_ns, $cipher_suite, 
+                                                           <'13', $sig_algs.1>, '40', $g1, $g1^~y>
+                                             ) ▶₁ #vr.59 )
+                                        case in_out
+                                        solve( State_S0( ~tid.1, $peer, $actor, '0', '0', prev_nc,
+                                                         prev_ns, prev_g, $g1, prev_hrr, prev_x,
+                                                         prev_y, prev_gx, prev_gy, prev_gxy,
+                                                         prev_psk_ke_mode, prev_psk_id, prev_edi,
+                                                         prev_es, prev_hs, prev_ms, prev_cats,
+                                                         prev_sats, prev_hs_keyc, prev_hs_keys,
+                                                         prev_auth_status, prev_ems, prev_rms,
+                                                         prev_cert_req
+                                               ) ▶₂ #vr.57 )
+                                          case start_server
+                                          solve( SendStream( ~tid, $actor, $peer, <'0', 'auth'>,
+                                                             Expand(Expand(Extract('0',
+                                                                                   Extract($g1^(~x*
+                                                                                                ~y),
+                                                                                           Extract('0',
+                                                                                                   '0'))),
+                                                                           <'clientats', 
+                                                                            h(<
+                                                                               <
+                                                                                <
+                                                                                 <
+                                                                                  <
+                                                                                   <'0', '1', 
+                                                                                    '0x0303', ~nc, 
+                                                                                    '0', 
+                                                                                    $cipher_suites, 
+                                                                                    '0', 
+                                                                                    <'43', '0x0304'
+                                                                                    >, 
+                                                                                    <'10', $g1, $g2
+                                                                                    >, 
+                                                                                    <'13', $sig_algs
+                                                                                    >, 
+                                                                                    '40', $g1, 
+                                                                                    $g1^~x>, 
+                                                                                   '2', '0x0303', 
+                                                                                   ~new_ns, 
+                                                                                   $cipher_suite, 
+                                                                                   <'13', 
+                                                                                    $sig_algs.1>, 
+                                                                                   '40', $g1, $g1^~y
+                                                                                  >, 
+                                                                                  '8', $exts>, 
+                                                                                 '11', '0', 
+                                                                                 pk(~ltkS)>, 
+                                                                                '15', 
+                                                                                sign(<'server_cv', 
+                                                                                      h(<
+                                                                                         <
+                                                                                          <
+                                                                                           <'0', 
+                                                                                            '1', 
+                                                                                            '0x0303', 
+                                                                                            ~nc, 
+                                                                                            '0', 
+                                                                                            $cipher_suites, 
+                                                                                            '0', 
+                                                                                            <'43', 
+                                                                                             '0x0304'
+                                                                                            >, 
+                                                                                            <'10', 
+                                                                                             $g1, 
+                                                                                             $g2>, 
+                                                                                            <'13', 
+                                                                                             $sig_algs
+                                                                                            >, 
+                                                                                            '40', 
+                                                                                            $g1, 
+                                                                                            $g1^~x
+                                                                                           >, 
+                                                                                           '2', 
+                                                                                           '0x0303', 
+                                                                                           ~new_ns, 
+                                                                                           $cipher_suite, 
+                                                                                           <'13', 
+                                                                                            $sig_algs.1
+                                                                                           >, 
+                                                                                           '40', 
+                                                                                           $g1, 
+                                                                                           $g1^~y>, 
+                                                                                          '8', $exts
+                                                                                         >, 
+                                                                                         '11', '0', 
+                                                                                         pk(~ltkS)>)
+                                                                                     >,
+                                                                                     ~ltkS)
+                                                                               >, 
+                                                                               '20', 
+                                                                               hmac(<
+                                                                                     Expand(Expand(Extract($g1^(
+                                                                                                                ~x*
+                                                                                                                ~y
+                                                                                                               ),
+                                                                                                           Extract('0',
+                                                                                                                   '0')),
+                                                                                                   <
+                                                                                                    'serverhts', 
+                                                                                                    h(<
+                                                                                                       <
+                                                                                                        <
+                                                                                                         <
+                                                                                                          <
+                                                                                                           '0', 
+                                                                                                           '1', 
+                                                                                                           '0x0303', 
+                                                                                                           ~nc, 
+                                                                                                           '0', 
+                                                                                                           $cipher_suites, 
+                                                                                                           '0', 
+                                                                                                           <
+                                                                                                            '43', 
+                                                                                                            '0x0304'
+                                                                                                           >, 
+                                                                                                           <
+                                                                                                            '10', 
+                                                                                                            $g1, 
+                                                                                                            $g2
+                                                                                                           >, 
+                                                                                                           <
+                                                                                                            '13', 
+                                                                                                            $sig_algs
+                                                                                                           >, 
+                                                                                                           '40', 
+                                                                                                           $g1, 
+                                                                                                           $g1^~x
+                                                                                                          >, 
+                                                                                                          '2', 
+                                                                                                          '0x0303', 
+                                                                                                          ~new_ns, 
+                                                                                                          $cipher_suite, 
+                                                                                                          <
+                                                                                                           '13', 
+                                                                                                           $sig_algs.1
+                                                                                                          >, 
+                                                                                                          '40', 
+                                                                                                          $g1, 
+                                                                                                          $g1^~y
+                                                                                                         >, 
+                                                                                                         '8', 
+                                                                                                         $exts
+                                                                                                        >, 
+                                                                                                        '11', 
+                                                                                                        '0', 
+                                                                                                        pk(~ltkS)
+                                                                                                       >, 
+                                                                                                       '15', 
+                                                                                                       sign(<
+                                                                                                             'server_cv', 
+                                                                                                             h(<
+                                                                                                                <
+                                                                                                                 <
+                                                                                                                  <
+                                                                                                                   '0', 
+                                                                                                                   '1', 
+                                                                                                                   '0x0303', 
+                                                                                                                   ~nc, 
+                                                                                                                   '0', 
+                                                                                                                   $cipher_suites, 
+                                                                                                                   '0', 
+                                                                                                                   <
+                                                                                                                    '43', 
+                                                                                                                    '0x0304'
+                                                                                                                   >, 
+                                                                                                                   <
+                                                                                                                    '10', 
+                                                                                                                    $g1, 
+                                                                                                                    $g2
+                                                                                                                   >, 
+                                                                                                                   <
+                                                                                                                    '13', 
+                                                                                                                    $sig_algs
+                                                                                                                   >, 
+                                                                                                                   '40', 
+                                                                                                                   $g1, 
+                                                                                                                   $g1^~x
+                                                                                                                  >, 
+                                                                                                                  '2', 
+                                                                                                                  '0x0303', 
+                                                                                                                  ~new_ns, 
+                                                                                                                  $cipher_suite, 
+                                                                                                                  <
+                                                                                                                   '13', 
+                                                                                                                   $sig_algs.1
+                                                                                                                  >, 
+                                                                                                                  '40', 
+                                                                                                                  $g1, 
+                                                                                                                  $g1^~y
+                                                                                                                 >, 
+                                                                                                                 '8', 
+                                                                                                                 $exts
+                                                                                                                >, 
+                                                                                                                '11', 
+                                                                                                                '0', 
+                                                                                                                pk(~ltkS)
+                                                                                                               >)
+                                                                                                            >,
+                                                                                                            ~ltkS)
+                                                                                                      >)
+                                                                                                   >,
+                                                                                                   '32'),
+                                                                                            <'fin', 
+                                                                                             '0'>,
+                                                                                            '32'), 
+                                                                                     h(<
+                                                                                        <
+                                                                                         <
+                                                                                          <
+                                                                                           <'0', 
+                                                                                            '1', 
+                                                                                            '0x0303', 
+                                                                                            ~nc, 
+                                                                                            '0', 
+                                                                                            $cipher_suites, 
+                                                                                            '0', 
+                                                                                            <'43', 
+                                                                                             '0x0304'
+                                                                                            >, 
+                                                                                            <'10', 
+                                                                                             $g1, 
+                                                                                             $g2>, 
+                                                                                            <'13', 
+                                                                                             $sig_algs
+                                                                                            >, 
+                                                                                            '40', 
+                                                                                            $g1, 
+                                                                                            $g1^~x
+                                                                                           >, 
+                                                                                           '2', 
+                                                                                           '0x0303', 
+                                                                                           ~new_ns, 
+                                                                                           $cipher_suite, 
+                                                                                           <'13', 
+                                                                                            $sig_algs.1
+                                                                                           >, 
+                                                                                           '40', 
+                                                                                           $g1, 
+                                                                                           $g1^~y>, 
+                                                                                          '8', $exts
+                                                                                         >, 
+                                                                                         '11', '0', 
+                                                                                         pk(~ltkS)
+                                                                                        >, 
+                                                                                        '15', 
+                                                                                        sign(<
+                                                                                              'server_cv', 
+                                                                                              h(<
+                                                                                                 <
+                                                                                                  <
+                                                                                                   <
+                                                                                                    '0', 
+                                                                                                    '1', 
+                                                                                                    '0x0303', 
+                                                                                                    ~nc, 
+                                                                                                    '0', 
+                                                                                                    $cipher_suites, 
+                                                                                                    '0', 
+                                                                                                    <
+                                                                                                     '43', 
+                                                                                                     '0x0304'
+                                                                                                    >, 
+                                                                                                    <
+                                                                                                     '10', 
+                                                                                                     $g1, 
+                                                                                                     $g2
+                                                                                                    >, 
+                                                                                                    <
+                                                                                                     '13', 
+                                                                                                     $sig_algs
+                                                                                                    >, 
+                                                                                                    '40', 
+                                                                                                    $g1, 
+                                                                                                    $g1^~x
+                                                                                                   >, 
+                                                                                                   '2', 
+                                                                                                   '0x0303', 
+                                                                                                   ~new_ns, 
+                                                                                                   $cipher_suite, 
+                                                                                                   <
+                                                                                                    '13', 
+                                                                                                    $sig_algs.1
+                                                                                                   >, 
+                                                                                                   '40', 
+                                                                                                   $g1, 
+                                                                                                   $g1^~y
+                                                                                                  >, 
+                                                                                                  '8', 
+                                                                                                  $exts
+                                                                                                 >, 
+                                                                                                 '11', 
+                                                                                                 '0', 
+                                                                                                 pk(~ltkS)
+                                                                                                >)
+                                                                                             >,
+                                                                                             ~ltkS)
+                                                                                       >)
+                                                                                    >)
+                                                                              >)
+                                                                           >,
+                                                                           '32'),
+                                                                    <'adke_wk', '0'>, '32')
+                                                 ) ▶₁ #vr.1 )
+                                            case certificate_request_post
+                                            by sorry
+                                          next
+                                            case client_auth
+                                            solve( RecvStream( ~nc, $actor, $peer, <'0', 'auth'>,
+                                                               app_keys
+                                                   ) ▶₁ #vr.3 )
+                                              case recv_case_1
+                                              by sorry
+                                            next
+                                              case recv_case_2
+                                              by sorry
+                                            next
+                                              case recv_certificate_request_post
+                                              by sorry
+                                            next
+                                              case recv_client_auth_post
+                                              by sorry
+                                            next
+                                              case recv_server_auth
+                                              solve( SendStream( ~tid.1, $S, $C, <'auth', '0'>,
+                                                                 Expand(Expand(Extract('0',
+                                                                                       Extract($g^(
+                                                                                                   ~new_y*
+                                                                                                   ~x
+                                                                                                  ),
+                                                                                               Extract('0',
+                                                                                                       '0'))),
+                                                                               <'serverats', 
+                                                                                h(<
+                                                                                   <
+                                                                                    <
+                                                                                     <
+                                                                                      <
+                                                                                       <'0', '1', 
+                                                                                        '0x0303', 
+                                                                                        ~nc, '0', 
+                                                                                        $cipher_suites, 
+                                                                                        '0', 
+                                                                                        <'43', 
+                                                                                         '0x0304'>, 
+                                                                                        <'10', $g, 
+                                                                                         $g2>, 
+                                                                                        <'13', 
+                                                                                         $sig_algs
+                                                                                        >, 
+                                                                                        '40', $g, 
+                                                                                        $g^~x>, 
+                                                                                       '2', 
+                                                                                       '0x0303', 
+                                                                                       ~new_ns, 
+                                                                                       $cipher_suite, 
+                                                                                       <'13', 
+                                                                                        $sig_algs.1
+                                                                                       >, 
+                                                                                       '40', $g, 
+                                                                                       $g^~new_y>, 
+                                                                                      '8', $exts>, 
+                                                                                     '11', '0', 
+                                                                                     pk(~ltkS)>, 
+                                                                                    '15', 
+                                                                                    sign(<
+                                                                                          'server_cv', 
+                                                                                          h(<
+                                                                                             <
+                                                                                              <
+                                                                                               <
+                                                                                                '0', 
+                                                                                                '1', 
+                                                                                                '0x0303', 
+                                                                                                ~nc, 
+                                                                                                '0', 
+                                                                                                $cipher_suites, 
+                                                                                                '0', 
+                                                                                                <
+                                                                                                 '43', 
+                                                                                                 '0x0304'
+                                                                                                >, 
+                                                                                                <
+                                                                                                 '10', 
+                                                                                                 $g, 
+                                                                                                 $g2
+                                                                                                >, 
+                                                                                                <
+                                                                                                 '13', 
+                                                                                                 $sig_algs
+                                                                                                >, 
+                                                                                                '40', 
+                                                                                                $g, 
+                                                                                                $g^~x
+                                                                                               >, 
+                                                                                               '2', 
+                                                                                               '0x0303', 
+                                                                                               ~new_ns, 
+                                                                                               $cipher_suite, 
+                                                                                               <
+                                                                                                '13', 
+                                                                                                $sig_algs.1
+                                                                                               >, 
+                                                                                               '40', 
+                                                                                               $g, 
+                                                                                               $g^~new_y
+                                                                                              >, 
+                                                                                              '8', 
+                                                                                              $exts
+                                                                                             >, 
+                                                                                             '11', 
+                                                                                             '0', 
+                                                                                             pk(~ltkS)
+                                                                                            >)
+                                                                                         >,
+                                                                                         ~ltkS)
+                                                                                   >, 
+                                                                                   '20', 
+                                                                                   hmac(<
+                                                                                         Expand(Expand(Extract($g^(
+                                                                                                                   ~new_y*
+                                                                                                                   ~x
+                                                                                                                  ),
+                                                                                                               Extract('0',
+                                                                                                                       '0')),
+                                                                                                       <
+                                                                                                        'serverhts', 
+                                                                                                        h(<
+                                                                                                           <
+                                                                                                            <
+                                                                                                             <
+                                                                                                              <
+                                                                                                               '0', 
+                                                                                                               '1', 
+                                                                                                               '0x0303', 
+                                                                                                               ~nc, 
+                                                                                                               '0', 
+                                                                                                               $cipher_suites, 
+                                                                                                               '0', 
+                                                                                                               <
+                                                                                                                '43', 
+                                                                                                                '0x0304'
+                                                                                                               >, 
+                                                                                                               <
+                                                                                                                '10', 
+                                                                                                                $g, 
+                                                                                                                $g2
+                                                                                                               >, 
+                                                                                                               <
+                                                                                                                '13', 
+                                                                                                                $sig_algs
+                                                                                                               >, 
+                                                                                                               '40', 
+                                                                                                               $g, 
+                                                                                                               $g^~x
+                                                                                                              >, 
+                                                                                                              '2', 
+                                                                                                              '0x0303', 
+                                                                                                              ~new_ns, 
+                                                                                                              $cipher_suite, 
+                                                                                                              <
+                                                                                                               '13', 
+                                                                                                               $sig_algs.1
+                                                                                                              >, 
+                                                                                                              '40', 
+                                                                                                              $g, 
+                                                                                                              $g^~new_y
+                                                                                                             >, 
+                                                                                                             '8', 
+                                                                                                             $exts
+                                                                                                            >, 
+                                                                                                            '11', 
+                                                                                                            '0', 
+                                                                                                            pk(~ltkS)
+                                                                                                           >, 
+                                                                                                           '15', 
+                                                                                                           sign(<
+                                                                                                                 'server_cv', 
+                                                                                                                 h(<
+                                                                                                                    <
+                                                                                                                     <
+                                                                                                                      <
+                                                                                                                       '0', 
+                                                                                                                       '1', 
+                                                                                                                       '0x0303', 
+                                                                                                                       ~nc, 
+                                                                                                                       '0', 
+                                                                                                                       $cipher_suites, 
+                                                                                                                       '0', 
+                                                                                                                       <
+                                                                                                                        '43', 
+                                                                                                                        '0x0304'
+                                                                                                                       >, 
+                                                                                                                       <
+                                                                                                                        '10', 
+                                                                                                                        $g, 
+                                                                                                                        $g2
+                                                                                                                       >, 
+                                                                                                                       <
+                                                                                                                        '13', 
+                                                                                                                        $sig_algs
+                                                                                                                       >, 
+                                                                                                                       '40', 
+                                                                                                                       $g, 
+                                                                                                                       $g^~x
+                                                                                                                      >, 
+                                                                                                                      '2', 
+                                                                                                                      '0x0303', 
+                                                                                                                      ~new_ns, 
+                                                                                                                      $cipher_suite, 
+                                                                                                                      <
+                                                                                                                       '13', 
+                                                                                                                       $sig_algs.1
+                                                                                                                      >, 
+                                                                                                                      '40', 
+                                                                                                                      $g, 
+                                                                                                                      $g^~new_y
+                                                                                                                     >, 
+                                                                                                                     '8', 
+                                                                                                                     $exts
+                                                                                                                    >, 
+                                                                                                                    '11', 
+                                                                                                                    '0', 
+                                                                                                                    pk(~ltkS)
+                                                                                                                   >)
+                                                                                                                >,
+                                                                                                                ~ltkS)
+                                                                                                          >)
+                                                                                                       >,
+                                                                                                       '32'),
+                                                                                                <
+                                                                                                 'fin', 
+                                                                                                 '0'
+                                                                                                >,
+                                                                                                '32'), 
+                                                                                         h(<
+                                                                                            <
+                                                                                             <
+                                                                                              <
+                                                                                               <
+                                                                                                '0', 
+                                                                                                '1', 
+                                                                                                '0x0303', 
+                                                                                                ~nc, 
+                                                                                                '0', 
+                                                                                                $cipher_suites, 
+                                                                                                '0', 
+                                                                                                <
+                                                                                                 '43', 
+                                                                                                 '0x0304'
+                                                                                                >, 
+                                                                                                <
+                                                                                                 '10', 
+                                                                                                 $g, 
+                                                                                                 $g2
+                                                                                                >, 
+                                                                                                <
+                                                                                                 '13', 
+                                                                                                 $sig_algs
+                                                                                                >, 
+                                                                                                '40', 
+                                                                                                $g, 
+                                                                                                $g^~x
+                                                                                               >, 
+                                                                                               '2', 
+                                                                                               '0x0303', 
+                                                                                               ~new_ns, 
+                                                                                               $cipher_suite, 
+                                                                                               <
+                                                                                                '13', 
+                                                                                                $sig_algs.1
+                                                                                               >, 
+                                                                                               '40', 
+                                                                                               $g, 
+                                                                                               $g^~new_y
+                                                                                              >, 
+                                                                                              '8', 
+                                                                                              $exts
+                                                                                             >, 
+                                                                                             '11', 
+                                                                                             '0', 
+                                                                                             pk(~ltkS)
+                                                                                            >, 
+                                                                                            '15', 
+                                                                                            sign(<
+                                                                                                  'server_cv', 
+                                                                                                  h(<
+                                                                                                     <
+                                                                                                      <
+                                                                                                       <
+                                                                                                        '0', 
+                                                                                                        '1', 
+                                                                                                        '0x0303', 
+                                                                                                        ~nc, 
+                                                                                                        '0', 
+                                                                                                        $cipher_suites, 
+                                                                                                        '0', 
+                                                                                                        <
+                                                                                                         '43', 
+                                                                                                         '0x0304'
+                                                                                                        >, 
+                                                                                                        <
+                                                                                                         '10', 
+                                                                                                         $g, 
+                                                                                                         $g2
+                                                                                                        >, 
+                                                                                                        <
+                                                                                                         '13', 
+                                                                                                         $sig_algs
+                                                                                                        >, 
+                                                                                                        '40', 
+                                                                                                        $g, 
+                                                                                                        $g^~x
+                                                                                                       >, 
+                                                                                                       '2', 
+                                                                                                       '0x0303', 
+                                                                                                       ~new_ns, 
+                                                                                                       $cipher_suite, 
+                                                                                                       <
+                                                                                                        '13', 
+                                                                                                        $sig_algs.1
+                                                                                                       >, 
+                                                                                                       '40', 
+                                                                                                       $g, 
+                                                                                                       $g^~new_y
+                                                                                                      >, 
+                                                                                                      '8', 
+                                                                                                      $exts
+                                                                                                     >, 
+                                                                                                     '11', 
+                                                                                                     '0', 
+                                                                                                     pk(~ltkS)
+                                                                                                    >)
+                                                                                                 >,
+                                                                                                 ~ltkS)
+                                                                                           >)
+                                                                                        >)
+                                                                                  >)
+                                                                               >,
+                                                                               '32'),
+                                                                        <'adke_wk', '0'>, '32')
+                                                     ) ▶₁ #vr.5 )
+                                                case certificate_request_post
+                                                by sorry
+                                              next
+                                                case client_auth_post
+                                                by sorry
+                                              next
+                                                case send
+                                                by sorry
+                                              next
+                                                case server_auth
+                                                SOLVED // trace found
+                                              qed
+                                            next
+                                              case update_fin_client_case_1
+                                              by sorry
+                                            next
+                                              case update_fin_client_case_2
+                                              by sorry
+                                            next
+                                              case update_fin_server_case_1
+                                              by sorry
+                                            next
+                                              case update_fin_server_case_2
+                                              by sorry
+                                            next
+                                              case update_recv_client
+                                              by sorry
+                                            next
+                                              case update_recv_server
+                                              by sorry
+                                            qed
+                                          next
+                                            case send
+                                            by sorry
+                                          qed
+                                        qed
+                                      qed
+                                    qed
+                                  next
+                                    case recv_client_auth_case_2
+                                    by sorry
+                                  next
+                                    case recv_client_auth_cert_case_1
+                                    by sorry
+                                  next
+                                    case recv_client_auth_cert_case_2
+                                    by sorry
+                                  next
+                                    case recv_client_auth_post
+                                    by sorry
+                                  next
+                                    case update_fin_client_case_1
+                                    by sorry
+                                  next
+                                    case update_fin_client_case_2
+                                    by sorry
+                                  next
+                                    case update_fin_server_case_1
+                                    by sorry
+                                  next
+                                    case update_fin_server_case_2
+                                    by sorry
+                                  next
+                                    case update_recv_client
+                                    by sorry
+                                  next
+                                    case update_recv_server
+                                    by sorry
+                                  qed
+                                qed
+                              qed
+                            qed
+                          qed
+                        qed
+                      qed
+                    qed
+                  qed
+                qed
+              qed
+            next
+              case recv_client_auth_case_2
+              by sorry
+            next
+              case recv_client_auth_cert_case_1
+              by sorry
+            next
+              case recv_client_auth_cert_case_2
+              by sorry
+            next
+              case recv_client_auth_post
+              by sorry
+            next
+              case update_fin_server_case_1
+              by sorry
+            next
+              case update_fin_server_case_2
+              by sorry
+            next
+              case update_recv_server
+              by sorry
+            next
+              case update_req_server
+              by sorry
+            qed
+          next
+            case client_auth_post
+            by sorry
+          next
+            case recv_certificate_request_post
+            by sorry
+          next
+            case update_fin_client_case_1
+            by sorry
+          next
+            case update_fin_client_case_2
+            by sorry
+          next
+            case update_recv_client
+            by sorry
+          next
+            case update_req_client
+            by sorry
+          qed
+        next
+          case client_auth_case_2
+          by sorry
+        next
+          case client_auth_cert_case_1
+          by sorry
+        next
+          case client_auth_cert_case_2
+          by sorry
+        next
+          case client_auth_post
+          by sorry
+        next
+          case recv_certificate_request_post
+          by sorry
+        next
+          case update_fin_client_case_1
+          by sorry
+        next
+          case update_fin_client_case_2
+          by sorry
+        next
+          case update_recv_client
+          by sorry
+        next
+          case update_req_client
+          by sorry
+        qed
+      qed
+    next
+      case update_fin_client_case_1
+      by sorry
+    next
+      case update_fin_client_case_2
+      by sorry
+    next
+      case update_recv_client
+      by sorry
+    next
+      case update_req_client
+      by sorry
+    qed
+  next
+    case send
+    by sorry
+  next
+    case server_auth_case_1
+    by sorry
+  next
+    case server_auth_case_2
+    by sorry
+  next
+    case update_recv_client
+    by sorry
+  next
+    case update_recv_server
+    by sorry
+  next
+    case update_req_client
+    by sorry
+  next
+    case update_req_server
+    by sorry
+  qed
+qed
+
+lemma client_agree_auth [reuse]:
+  all-traces
+  "∀ tid actor peer auth_status_client auth_status_server data #i.
+    (RecvData( tid, actor, peer,
+               <auth_status_client, auth_status_server>, data
+     ) @ #i) ⇒
+    (∃ tid2 #j.
+      (CIdentity( tid2, peer, 'server',
+                  <actor, auth_status_server, auth_status_client>
+       ) @ #j) ∧
+      (#j < #i))"
+/*
+guarded formula characterizing all counter-examples:
+"∃ tid actor peer auth_status_client auth_status_server data #i.
+  (RecvData( tid, actor, peer,
+             <auth_status_client, auth_status_server>, data
+   ) @ #i)
+ ∧
+  ∀ tid2 #j.
+   (CIdentity( tid2, peer, 'server',
+               <actor, auth_status_server, auth_status_client>
+    ) @ #j)
+  ⇒
+   ¬(#j < #i)"
+*/
+by sorry
+
+/* All well-formedness checks were successful. */
+
+end
