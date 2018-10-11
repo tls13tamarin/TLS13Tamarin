@@ -1,0 +1,88 @@
+dnl(
+/*
+  Client rules for 0-RTT data in PSK mode.
+
+  From the specification 2.3. Zero-RTT Data
+
+  Client                                               Server
+
+  ClientHello
+    + early_data
+    + pre_shared_key
+    + key_share*
+  (Finished)
+  (Application Data*)
+  (end_of_early_data)       -------->
+                                                  ServerHello
+                                                 + early_data
+                                             + pre_shared_key
+                                                 + key_share*
+                                        {EncryptedExtensions}
+                                                   {Finished}
+                            <--------     [Application Data*]
+  {Finished}                -------->
+
+  [Application Data]        <------->      [Application Data]
+
+*/)
+
+
+include(msgs.m4i)
+include(crypto.m4i)
+include(state.m4i)
+
+
+rule end_early_data:
+let
+    C = $C
+    S = $S
+in
+    [ EarlySendStream(tid, C, S, auth_status, ead_keyc, early_data_indication())
+    ]
+  --[
+      C_EndZeroRTT(tid)
+    ]->
+    [
+      Out(senc{EndOfEarlyData}ead_keyc)
+    ]
+rule recv_end_early_data:
+let
+    C = $C
+    S = $S
+in
+    [ EarlyRecvStream(tid, S, C, auth_status, ead_keyc, early_data_indication()),
+      In(senc{EndOfEarlyData}ead_keyc)
+    ]
+  --[
+      S_RecvEndZeroRTT(tid)
+    ]->
+    [
+    ]
+
+rule send_early_data:
+let
+    C = $C
+    S = $S
+in
+    [ EarlySendStream(tid, C, S, auth_status, ead_keyc, early_data_indication()),
+      Fr(~data)
+    ]
+  --[ C_SendZeroRTT(tid)
+    ]->
+    [ EarlySendStream(tid, C, S, auth_status, ead_keyc, early_data_indication()),
+      Out(senc{data_record(~data)}ead_keyc)
+    ]
+
+rule recv_early_data:
+let
+    C = $C
+    S = $S
+in
+    [ EarlyRecvStream(tid, S, C, auth_status, ead_keyc, early_data_indication()),
+      In(senc{data_record(data)}ead_keyc)
+    ]
+  --[ S_RecvZeroRTT(tid)
+    ]->
+    [
+      EarlyRecvStream(tid, S, C, auth_status, ead_keyc, early_data_indication())
+    ]

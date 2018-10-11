@@ -1,0 +1,274 @@
+dnl(
+/*
+  Client rules for client hello in PSK mode.
+
+  From the specification 2.2. Resumption and Pre-Shared Key (PSK)
+
+   Subsequent Handshake:
+      ClientHello
+      + key_share*
+      + psk_key_exchange_modes
+      + pre_shared_key         -------->
+                                                      ServerHello
+                                                 + pre_shared_key
+                                                     + key_share*
+                                            {EncryptedExtensions}
+                                                       {Finished}
+                                <--------     [Application Data*]
+      {Finished}                -------->
+      [Application Data]        <------->      [Application Data]
+*/)
+
+
+include(msgs.m4i)
+include(crypto.m4i)
+include(state.m4i)
+
+dnl Extensions definitions for ClientHello with PSK
+define(<!ClientHelloExtensions!>, <!< dnl
+  SupportedVersions, dnl
+  NamedGroupList, dnl
+  KeyShareCH, dnl
+  PskKeyExchangeModes, dnl
+  EarlyDataIndication, dnl
+  PreSharedKeyExtensionCH dnl
+>!>)
+rule client_hello_psk:
+let
+    // Initialises all state variables to zero.
+    init_state()
+
+    edi = early_data_indication()
+
+    // Set resumption values from ClientPSK
+    res_psk = prev_res_psk
+    auth_status = prev_auth_status
+    psk_id = ticket
+    psk_ke_mode = <psk_ke, psk_dhe_ke> dnl <'0', '1'>
+    obfuscated_ticket_age = mask(ticket_age_add, $ticket_age)
+    identities = <<ticket, obfuscated_ticket_age>>
+
+    // Abstract client identity - does not currently correspond to 
+    // anything concrete 
+    C = $C
+
+    // Server identity - can be interpreted as the hostname
+    S = $S
+
+    // Client nonce
+    nc = ~nc
+
+    // We reuse the client nonce to be a thread identifier
+    tid = nc
+
+    g1 = $g1
+    g2 = $g2
+    sg= <g1, g2>
+    client_sg = <g1, g2>
+
+    // Group, DH exponent, key share
+    g = g1
+    x = ~x
+    gx = g^x
+
+    es = EarlySecret
+    binder = '0'
+    binder_messages = <messages, ClientHello>
+    binder = compute_binder()
+    messages = <messages, ClientHello>
+
+    ead_keyc = keygen(early_traffic_secret(client), early_app_key_label())
+in
+    [ Fr(nc),
+      Fr(x),
+      // XXX: For some reason using oob PSK explodes memory usage...
+      !ClientPSK(C, S, prev_res_psk, prev_auth_status, NewSessionTicket, psk_type)
+    ]
+  --[ C0_PSK(tid),
+      Start(tid, C, 'client'),
+      running_client(PSK, S, prev_res_psk, prev_auth_status),
+      Neq(prev_res_psk, '0'),
+      DH(tid, C, x)
+    ]->
+    [
+      State(C1, tid, C, S, ClientState),
+      CachePSK(tid, S, prev_res_psk, prev_auth_status, NewSessionTicket, psk_type),
+      EarlySendStream(tid, C, S, auth_status, ead_keyc, edi),
+      DHExp(x, tid, C),
+    // Write the ClientHelloMsg onto the wire *presumably* with destination S
+      Out(ClientHello)
+    ]
+
+define(<!HelloRetryRequestExtensions!>, <!<KeyShareHRR>!>)
+rule recv_hello_retry_request_psk:
+let
+    g1 = $g1
+    g2 = $g2
+    prev_sg = <g1, g2>
+    prev_g = g1
+    prev_hrr = '0'
+
+    prev_psk_ke_mode = <psk_ke, psk_dhe_ke>
+    set_state()
+
+
+    // Set resumption values from ClientPSK
+    res_psk = prev_res_psk
+    auth_status = prev_auth_status
+    psk_id = ticket
+    psk_ke_mode = <psk_ke, psk_dhe_ke> dnl <'0', '1'>
+    obfuscated_ticket_age = mask(ticket_age_add, '1')
+    identities = <<ticket, obfuscated_ticket_age>>
+    edi = no_early_data_indication()
+
+    hrr = 'hrr'
+    new_g = g2
+    g = g2
+    client_sg = <g1, g2>
+
+    C = $C
+    S = $S
+
+    new_nc = ~new_nc
+    new_x = ~new_x
+    x = new_x
+    gx = g^x
+    nc = new_nc
+
+    es = EarlySecret
+    messages = <messages, HelloRetryRequest>
+    tmp_messages = messages
+    binder = '0'
+    binder_messages = <messages, ClientHello>
+    binder = compute_binder()
+    messages = <tmp_messages, ClientHello>
+in
+    [ State(C1, tid, C, S, PrevClientState),
+      CachePSK(tid, S, prev_res_psk, prev_auth_status, NewSessionTicket, psk_type),
+      Fr(new_nc),
+      Fr(new_x),
+      DHExp(prev_x, tid, C),
+      In(HelloRetryRequest)
+    ]
+  --[ C1_retry_PSK(tid),
+      Neq(g1, g2),
+      Instance(tid, C, 'client'),
+      running_client(PSK, S, prev_res_psk, prev_auth_status),
+      DeleteDH(tid, C, prev_x),
+      DH(tid, C, x)
+    ]->
+    [ Out(ClientHello),
+      DHExp(x, tid, C),
+      State(C1, tid, C, S, ClientState)
+    ]
+
+dnl Extensions definitions for PSK ServerHello
+define(<!ServerHelloExtensions!>, <!< dnl
+  SignatureSchemeList, dnl
+  KeyShareSH, dnl
+  PreSharedKeyExtensionSH, dnl
+  EarlyDataIndication dnl
+>!>)
+rule recv_server_hello_psk_dhe:
+let
+    prev_g = $g
+    prev_x = ~x
+    prev_psk_ke_mode = <psk_ke, psk_dhe_ke>
+    prev_psk_id = ~ticket
+
+    set_state()
+    ns = new_ns
+    gy = new_gy
+
+    psk_ke_mode = psk_dhe_ke
+
+    C = $C
+    S = $S
+
+    gy = g^new_y
+
+    // Derive the shared secret
+    gxy = gy^x
+
+    identity = psk_id
+
+    messages = <messages, ServerHello>
+in
+    [ State(C1, tid, C, S, PrevClientState),
+      In(ServerHello)
+    ]
+  --[ C1_PSK_DHE(tid),
+      Neq(gy, g),
+      Instance(tid, C, 'client'),
+      DHChal(g, x, new_y, gx, gy, gxy),
+      running_client(Nonces, nc, ns)
+    ]->
+    [
+      State(C2a, tid, C, S, ClientState)
+    ]
+
+define(<!ServerHelloExtensions!>, <!< dnl
+  SignatureSchemeList, dnl
+  PreSharedKeyExtensionSH, dnl
+  EarlyDataIndication dnl
+>!>)
+rule recv_server_hello_psk:
+let
+    prev_psk_ke_mode = <psk_ke, psk_dhe_ke>
+
+    set_state()
+    ns = new_ns
+
+    psk_ke_mode = psk_ke
+
+    C = $C
+    S = $S
+
+    identity = psk_id
+
+    messages = <prev_messages, ServerHello>
+in
+    [ State(C1, tid, C, S, PrevClientState),
+      In(ServerHello)
+    ]
+  --[ C1_PSK(tid),
+      Instance(tid, C, 'client'),
+      running_client(Nonces, nc, ns)
+    ]->
+    [
+      State(C2a, tid, C, S, ClientState)
+    ]
+
+
+rule recv_server_auth_psk:
+let
+    set_state()
+
+    S = $S
+    C = $C
+
+    exp_verify_data = compute_finished(server)
+
+    messages = <messages, Finished>
+
+    cats = application_traffic_secret_0(client)
+    sats = application_traffic_secret_0(server)
+    app_keys = keygen(sats, app_key_label())
+    ems = exporter_master_secret()
+in
+    [ State(C2d, tid, C, S, PrevClientState),
+      In(senc{Finished}hs_keys)
+    ]
+  --[ C2d_PSK(tid),
+      Neq(prev_psk_ke_mode, 'na'),
+      Instance(tid, C, 'client'),
+      Eq(verify_data, exp_verify_data),
+      running_client(Mode, psk_ke_mode),
+      commit_client(Identity, <S, auth_status>),
+      commit_client(HS, hs),
+      commit_client(Nonces, nc, ns),
+      commit_client(Transcript, messages)
+    ]->
+    [ State(C3, tid, C, S, ClientState),
+      RecvStream(tid, C, S, auth_status, app_keys)
+    ]

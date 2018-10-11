@@ -1,0 +1,123 @@
+dnl(
+/*
+    This file is a translation from Section 4 of the TLS 1.3 specification
+    for use in the Tamarin model
+
+    By mapping the structs as defined in the specification, it is clear
+    where abstractions/simplifications are made.
+
+    Comment blocks are wrapped in dnl(...) and also inside comments for syntax
+    highlighting purposes and to hide them from the final processed output.
+*/)
+// msgs.m4i imports
+define(<!ProtocolVersion!>, <!'0x0303'!>)
+define(<!ClientRandom!>, <!nc!>)
+define(<!ClientHello!>, <!handshake_record('1', dnl
+ProtocolVersion, dnl
+ClientRandom, dnl
+'0', dnl legacy_session_id
+$cipher_suites, dnl
+'0', dnl legacy_compression_methods
+ClientHelloExtensions dnl
+)!>)
+define(<!Extension!>, <!<$@>!>)
+define(<!SupportedVersions!>, <!Extension('43', '0x0304')!>)
+define(<!NamedGroupList!>, <!Extension('10', client_sg)!>)
+define(<!SignatureSchemeList!>, <!Extension('13', $sig_algs)!>)
+define(<!KeyShareCH!>, <!Extension('40', g, gx)!>)
+define(<!KeyShareSH!>, <!Extension('40', g, gy)!>)
+define(<!KeyShareHRR!>, <!Extension('40', new_g)!>)
+
+dnl identities should be a list of pairs <~identity, obfuscated_ticket_age>
+dnl binders should be a list of <~binders>
+define(<!PreSharedKeyExtensionCH!>, <!Extension('41', identities, <binder>)!>)
+define(<!PreSharedKeyExtensionSH!>, <!Extension('41', '0')!>)
+define(<!PskKeyExchangeModes!>, <!Extension('45', psk_ke_mode)!>)
+define(<!psk_ke!>, <!'0'!>)
+define(<!psk_dhe_ke!>, <!'1'!>)
+define(<!EarlyDataIndication!>, <!edi!>)
+define(<!early_data_indication!>, <!Extension('42', '0')!>)
+define(<!no_early_data_indication!>, <!'0'!>)
+define(<!Cookie!>, <!Extension('44', cookie_data)!>)
+define(<!ServerRandom!>, <!ns!>)
+define(<!ServerHello!>, <!handshake_record('2', dnl
+  ProtocolVersion, dnl
+  ServerRandom, dnl
+  $cipher_suite, dnl
+  ServerHelloExtensions dnl
+)!>)
+
+define(<!HelloRetryRequest!>, <!handshake_record('6', dnl
+    ProtocolVersion, dnl
+    HelloRetryRequestExtensions dnl
+)!>)
+define(<!EncryptedExtensions!>, <!handshake_record('8', $exts)!>)
+
+define(<!CertificateRequest!>, <! handshake_record('13', dnl
+  certificate_request_context, dnl
+  $certificate_extensions dnl
+)!>)
+
+
+define(<!Certificate!>, <!handshake_record('11', certificate_request_context, certificate)!>)
+define(<!CertificateVerify!>, <!handshake_record('15', dnl
+dnl  $sig_alg, Removing 
+  signature dnl
+)!>)
+define(<!Finished!>, <!handshake_record('20', verify_data)!>)
+
+
+define(<!NewSessionTicket!>, <!handshake_record('4',  dnl
+$ticket_lifetime, dnl
+ticket_age_add, dnl
+ticket, dnl
+TicketExtensions dnl
+)!>)
+define(<!TicketExtensions!>, <!<Extension('46', $max_early_data_size)>!>)
+
+define(<!KeyUpdate!>, <!handshake_record('24', update_requested)!>)
+define(<!KeyUpdateReply!>, <!handshake_record('24', update_not_requested)!>)
+define(<!update_not_requested!>, <!'0'!>)
+define(<!update_requested!>, <!'1'!>)
+define(<!EndOfEarlyData!>, <!alert('1')!>)
+
+dnl(
+/*
+5.2. Record Payload Protection
+-------------------------------
+
+The record protection functions translate a TLSPlaintext structure into a
+TLSCiphertext. The deprotection functions reverse the process. In TLS 1.3 as
+opposed to previous versions of TLS, all ciphers are modeled as “Authenticated
+Encryption with Additional Data” (AEAD) [RFC5116]. AEAD functions provide a
+unified encryption and authentication operation which turns plaintext into
+authenticated ciphertext and back again. Each encrypted record consists of a
+plaintext header followed by an encrypted body, which itself contains a type and
+optional padding.
+
+   struct {
+      opaque content[TLSPlaintext.length];
+      ContentType type;
+      uint8 zeros[length_of_padding];
+   } TLSInnerPlaintext;
+
+   struct {
+       ContentType opaque_type = application_data(23);
+       ProtocolVersion legacy_record_version = { 3, 1 };
+       uint16 length;
+       opaque encrypted_record[length];
+   } TLSCiphertext;
+
+*/)
+dnl define(<!handshake_record!>, <!<$@, '22'>!>)
+define(<!handshake_record!>, <!<$@>!>)
+define(<!data_record!>, <!<$@, '23'>!>)
+define(<!alert!>, <!<$@, '21'>!>)
+
+ifdef(<!SIMPLE_MODEL!>,
+<!
+define(<!ClientHello!>, <!<nc, gx, g>!>)
+define(<!ServerHello!>, <!<ns, gy>!>)
+define(<!CertificateRequest!>, <!<certificate_request_context>!>)
+define(<!NewSessionTicket!>, <!<ticket, TicketExtensions>!>)
+!>)

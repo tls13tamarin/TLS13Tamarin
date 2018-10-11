@@ -1,0 +1,27 @@
+dnl(
+/*
+  TLS Record protocol rules
+
+*/)
+
+rule send:
+    [ SendStream(~tid, $actor, $peer, auth_status, app_key_out),
+      Fr(~data)
+    ]
+  --[ Send(~tid),
+      SendData(~tid, $actor, $peer, auth_status, ~data)
+    ]->
+    [ SendStream(~tid, $actor, $peer, auth_status, app_key_out),
+      Out(senc{data_record(~data)}app_key_out)
+    ]
+
+rule recv:
+    [ RecvStream(~tid, $actor, $peer, auth_status, app_key_in),
+      In(senc{data_record(data)}app_key_in)
+    ]
+  --[ Recv(~tid),
+      RecvData(~tid, $actor, $peer, auth_status, data)
+    ]->
+    [
+      RecvStream(~tid, $actor, $peer, auth_status, app_key_in)
+    ]
