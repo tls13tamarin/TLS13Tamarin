@@ -1,0 +1,17 @@
+markdown: kramdown
+highlighter: rouge
+kramdown:
+  # use Github Flavored Markdown
+  input: GFM
+  hard_wrap: true
+  parse_block_html: true
+  smart_quotes: ["apos", "apos", "quot", "quot"]
+  gfm_quirks: ["paragraph_end"]
+  syntax_highlighter: rouge
+  syntax_highlighter_opts:
+    default_lang: C
+    line_numbers: false
+
+
+exclude:
+  [paper, src, tls13-spec]

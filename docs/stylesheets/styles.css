@@ -1,0 +1,152 @@
+html {
+    font-size: 14px;
+    font: 15px "Helvetica Neue",Helvetica,Arial,sans-serif;
+    color: #333;
+    font-size-adjust: 0.5;
+    line-height: 130%;
+    margin: 2.5em auto;
+    // background: #fbfcef;
+}
+
+
+h1, h2, h3, h4, h5, h6 {
+  color: #444;
+  margin: 0 0 10px;
+}
+
+p, ul, ol, table, pre, dl {
+  margin: 0 0 20px;
+}
+
+.wrapper {
+  width: 1600px;
+  // max-width: 1600px;
+  margin: 0 auto;
+  position: relative;
+  padding: 0 20px;
+}
+
+
+pre {
+  overflow-x: visible;
+}
+
+section {
+  max-width: 600px;
+  padding: 10px 0px 50px 0px;
+  margin: 20px 0;
+  margin-top: 70px;
+}
+
+
+
+@media print, screen and (max-width: 580px) {
+
+/*----------------------------
+    Two column layout media
+  ---------------------------*/
+article .begin-examples ~ h3,
+article .begin-examples ~ p,
+article .begin-examples ~ .highlight {
+    width: 100%;
+    float: none;
+    clear: none;
+}
+
+}
+
+
+/*----------------------------------------------------------
+    Other Styling
+    
+    Normally you would just put this in the sections above.
+  ---------------------------------------------------------*/
+
+h3 {
+    font-weight: normal;
+    text-size: 1rem;
+}
+
+
+.begin-examples ~ p {
+    font-style: italic;
+    font-size: 0.9rem;
+}
+
+.end-examples ~ p {
+    font-style: normal;
+    font-size: 1rem;
+}
+
+/*----------------------------
+    Other media
+  ---------------------------*/
+@media print, screen and (max-width: 580px) {
+article > h3,
+article > p {
+    padding: 0;
+    margin-bottom: 0.2rem;
+}
+
+article .highlight {
+    margin-bottom: 1.4rem;
+    background: #f7f7f7;
+    padding: 0.2rem;
+    
+    word-wrap: break-word;
+}
+
+article .highlight pre {
+    margin-bottom: 0;
+}
+
+}
+
+.row {
+    padding: 10px;
+    display: table;
+    width: 100%; /*Optional*/
+    // table-layout: auto; /*Optional*/
+    border-spacing: 0px; /*Optional*/
+}
+
+.col1 {
+    box-sizing: border-box;
+    padding: 20px;
+    display: table-cell;
+    width: 800px;
+    // background: #fbfcef;
+}
+
+.col2 {
+  box-sizing: border-box;
+  padding: 20px;
+  display: table-cell;
+  width: 800px;
+  border: 1px solid #e5f2f9;
+  background: #f4f9fc;
+}
+
+a.tooltip {outline:none; }
+a.tooltip strong {line-height:30px;}
+a.tooltip:hover {text-decoration:none;} 
+a.tooltip .tip {
+    left: 10%;
+    z-index:10;display:none; padding:14px 20px;
+    margin-top:60px; margin-left:-160px;
+    width:30%; line-height:16px;
+}
+a.tooltip:hover .tip{
+    display:inline; position:absolute; 
+    border:2px solid #333;  color:#333;
+    background:#FFF;
+}
+.callout {z-index:20;position:absolute;border:0;top:-14px;left:120px;}
+    
+/*CSS3 extras*/
+a.tooltip .tip
+{
+    border-radius:2px;        
+    box-shadow: 0px 0px 8px 4px #666;
+    /*opacity: 0.8;*/
+}
