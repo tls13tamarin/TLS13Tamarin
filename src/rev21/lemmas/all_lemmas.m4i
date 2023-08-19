@@ -334,19 +334,18 @@ lemma secret_session_keys_pfs [hide_lemma=sig_origin,hide_lemma=posths_rms]:
 
 define(<!lemma_session_key_agreement!>, <!
 lemma session_key_agreement [hide_lemma=sig_origin]:
-  "All tid tid2 actor peer actor2 peer2 nonces keys keys2 cas as2 #i #j #k #l.
-     SessionKey(tid, actor, peer2, <cas, 'auth'>, keys)@i & 
-     running(Nonces, actor, 'client', nonces)@j &
-     SessionKey(tid2, peer, actor2, as2, keys2)@k &
-     running2(Nonces, peer, 'server', nonces)@l &
-      // not (Ex #r. RevLtk(actor)@r & #r < #i) &
-      not (Ex #r. RevLtk(peer)@r & #r < #i & #r < #k) &
-      not (Ex tid3 x #r. RevDHExp(tid3, peer, x)@r & #r < #i & #r < #k) &
-      not (Ex tid4 y #r. RevDHExp(tid4, actor, y)@r & #r < #i & #r < #k) &
-      not (Ex rms #r. RevealPSK(actor, rms)@r & #r < #i & #r < #k) &
-      not (Ex rms #r. RevealPSK(peer, rms)@r & #r < #i & #r < #k)
+  "All tid tid2 actor peer actor2 peer2 nonces kr kr2 kw kw2 cas as2 #i #j #k #l.
+     SessionKey(tid, actor, peer, <cas, 'auth'>, <kr, kw>)@i & 
+     RNonces (tid, actor, 'client', nonces)@j &
+     SessionKey(tid2, peer2, actor2, as2, <kr2, kw2>)@k &
+     RNonces (tid2, peer2, 'server', nonces)@l &
+      not (Ex #r. RevLtk(peer)@r ) &
+      not (Ex tid3 x #r. RevDHExp(tid3, peer, x)@r ) &
+      not (Ex tid4 y #r. RevDHExp(tid4, actor, y)@r ) &
+      not (Ex rms #r. RevealPSK(actor, rms)@r ) &
+      not (Ex rms #r. RevealPSK(peer, rms)@r )
       ==>
-       keys = keys2"
+        <kr, kw> = <kw2, kr2>"
 !>)
 
 define(<!lemma_unique_session_keys!>, <!
