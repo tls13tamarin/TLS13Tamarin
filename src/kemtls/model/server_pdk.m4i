@@ -20,7 +20,6 @@ let
     nc = new_nc
     epk = new_epk
     ekem = $new_ekem
-    epk = Ephem_kempk(ekem, new_esk)
 
     // accept if the client is trying to auth -- or not
     edi = maybe_auth
@@ -36,9 +35,7 @@ let
     // Server nonce
     ns = ~ns
 
-    // PDK ciphertext
-    shared_secret = Server_kemss($kpdk, new_pdkseed)
-    ciphertext = Server_kemencaps($kpdk, shared_secret, Server_kempk($kpdk, ~ltkS))
+    // Decapsulate the received PDK ciphertext
     pdkss = Server_kemdecaps($kpdk, ciphertext, ~ltkS)
 
     es = EarlySecret(pdkss)
@@ -50,13 +47,14 @@ in
     [ State(S0, tid, S, C, PrevServerState)[no_precomp],
       In(ClientHello),
       Fr(ns),
-      !Ltk(S, ~ltkS)
+      !Ltk(S, ~ltkS),
+      !Pk(S, $kpdk, Server_kempk($kpdk, ~ltkS))
     ]
   --[ S0_PDK(tid),
       Neq(k1, k2),
       running_server(Identity, S),
-      Server_KemDecaps($kpdk, ~ltkS, shared_secret),
-      Server_KemChal($kpdk, ~ltkS, Server_kempk($kpdk, ~ltkS), ciphertext, shared_secret)
+      Server_KemDecaps($kpdk, ~ltkS, ciphertext, pdkss),
+      Server_KemChal($kpdk, Server_kempk($kpdk, ~ltkS), ciphertext, pdkss)
     ]->
     [
       State(S1, tid, S, C, ServerState)
@@ -79,7 +77,6 @@ rule server_recv_pdk_cert_emit_hello:
     prev_pdk = '1'
     prev_hrr = '0'
     prev_ekem = $k
-    prev_epk = Ephem_kempk(prev_ekem, some_esk)
     prev_ns = ~ns
 
     prev_edi = 'cert'
@@ -92,7 +89,6 @@ rule server_recv_pdk_cert_emit_hello:
 
     // Kem ct
     certificate_request_context = '0'
-    certificate = Client_kempk($kc, ~ltkC) 
 
     // ephemeral kex
     eseed = ~eseed   dnl fresh value
@@ -108,19 +104,19 @@ rule server_recv_pdk_cert_emit_hello:
     [
       State(S1, tid, S, C, PrevServerState)[no_precomp],
       In(senc{Certificate}ead_keyc),
-      !Pk(C, certificate),
+      !Pk(C, $kc, certificate),
       Fr(eseed)
     ] --[ 
       S1_PDK_cert(tid),
       Instance(tid, S, 'server'),
-      Ephem_KemChal(ekem, some_esk, epk, ect, ess),
+      Ephem_KemChal(ekem, epk, ect, ess),
       Ephem_KemEncap(ekem, epk, ess),
       running_server(Nonces, nc, ns),
       running_server(Identity, C, auth_status)
     ]->
     [
       State(S2a_PDK, tid, S, C, ServerState),
-      PdkCertificate(tid, certificate),
+      PdkCertificate(tid, $kc, certificate),
       Out(ServerHello)
     ]
 
@@ -139,7 +135,6 @@ let
     prev_pdk = '1'
     prev_hrr = '0'
     prev_ekem = $k
-    prev_epk = Ephem_kempk(prev_ekem, some_esk)
     prev_ns = ~ns
     prev_edi = '0'
 
@@ -166,7 +161,7 @@ in
     ]
   --[ S1_PDK_no_cert(tid),
       Instance(tid, S, 'server'),
-      Ephem_KemChal(ekem, some_esk, epk, ect, ess),
+      Ephem_KemChal(ekem, epk, ect, ess),
       Ephem_KemEncap(ekem, epk, ess),
       running_server(Nonces, nc, ns),
       running_server(Identity, C, auth_status)
@@ -247,7 +242,6 @@ let
   S = $S
   C = $C
 
-  certificate = Client_kempk($kca, ~ltkC)
   clauth_ss = Client_kemss($kca, ~pdkcaseed)
   ciphertext = Client_kemencaps($kca, clauth_ss, certificate)
 
@@ -258,12 +252,12 @@ in
   [
     State(S2c_PDK, tid, S, C, PrevServerState)[no_precomp],
     Fr(~pdkcaseed),
-    PdkCertificate(tid, certificate)
+    PdkCertificate(tid, $kca, certificate)
   ] --[
     S2c_PDK_cert(tid),
     Instance(tid, S, 'server'),
     Client_KemEncap($kca, certificate, clauth_ss),
-    Client_KemChal($kca, ~ltkC, certificate, ciphertext, clauth_ss),
+    Client_KemChal($kca, certificate, ciphertext, clauth_ss),
     running_server(Identity, C, auth_status),
     running_server(AuthSecret, clauth_ss, auth_status)
   ]-> [

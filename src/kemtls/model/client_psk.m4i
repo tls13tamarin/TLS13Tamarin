@@ -185,9 +185,7 @@ let
     C = $C
     S = $S
 
-    ect = Ephem_kemencaps(ekem, Ephem_kemss(ekem, new_eseed), epk)
-
-    // Derive the shared secret
+    // Decapsulate whatever ciphertext was received
     ess = Ephem_kemdecaps(ekem, ect, esk)
 
     identity = psk_id
@@ -200,8 +198,8 @@ in
   --[ C1_PSK_DHE(tid),
       Neq(ect, ekem),
       Instance(tid, C, 'client'),
-      Ephem_KemDecaps(ekem, esk, ess),
-      Ephem_KemChal(ekem, esk, epk, ect, ess),
+      Ephem_KemDecaps(ekem, esk, ect, ess),
+      Ephem_KemChal(ekem, epk, ect, ess),
       running_client(Nonces, nc, ns)
     ]->
     [

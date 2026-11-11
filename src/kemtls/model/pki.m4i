@@ -15,24 +15,25 @@
 
   Conclusions:
     !Ltk($A, ~ltkA) - binds the long-term key to the party $A
-    !Pk($A, pk(~ltkA)) - models the distribution of the public key by some PKI
-    Out(pk(~ltkA)) - outputs the public key so the adversary has knowledge
+    !Pk($A, $k, kempk($k, ~ltkA)) - models the distribution of the public key
+      and its KEM algorithm $k by some PKI
+    Out(kempk($k, ~ltkA)) - outputs the public key so the adversary has knowledge
 */
 ifdef(<!SPLIT_KEM!>, <!
 rule Register_pk_client:
   [ Fr(~ltkA) ]--[ GenLtk($A, ~ltkA), HonestUse(~ltkA)
   ]->
-  [ !Ltk($A, ~ltkA), !Pk($A, Client_kempk($k, ~ltkA)), Out(Client_kempk($k, ~ltkA)) ]
+  [ !Ltk($A, ~ltkA), !Pk($A, $k, Client_kempk($k, ~ltkA)), Out(Client_kempk($k, ~ltkA)) ]
 
 rule Register_pk_server:
   [ Fr(~ltkA) ]--[ GenLtk($A, ~ltkA), HonestUse(~ltkA)
   ]->
-  [ !Ltk($A, ~ltkA), !Pk($A, Server_kempk($k, ~ltkA)), Out(Server_kempk($k, ~ltkA)) ]
+  [ !Ltk($A, ~ltkA), !Pk($A, $k, Server_kempk($k, ~ltkA)), Out(Server_kempk($k, ~ltkA)) ]
 !>,<!
 rule Register_pk:
   [ Fr(~ltkA) ]--[ GenLtk($A, ~ltkA), HonestUse(~ltkA)
   ]->
-  [ !Ltk($A, ~ltkA), !Pk($A, kempk($k, ~ltkA)), Out(kempk($k, ~ltkA)) ]
+  [ !Ltk($A, ~ltkA), !Pk($A, $k, kempk($k, ~ltkA)), Out(kempk($k, ~ltkA)) ]
 !>)
 
 /*

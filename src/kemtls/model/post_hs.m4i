@@ -194,7 +194,7 @@ let
 in
     [ State(S4, tid, S, C, PrevServerState)[no_precomp],
       RecvStream(tid, S, C, prev_auth_status, app_keyc),
-      !Pk(C, pk(~ltkC)),
+      !Pk(C, $kc, pk(~ltkC)),
       ServerCertReq(tid, S, C, certificate_request_context),
       In(senc{Certificate, CertificateVerify, Finished}app_keyc)
     ]

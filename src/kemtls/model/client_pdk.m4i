@@ -66,7 +66,6 @@ let
     // PDK ciphertext
     pdkseed = ~pdkseed
     pdkss = Server_kemss($kpdk, pdkseed)
-    pdkpubkey = Server_kempk($kpdk, ~ltkS)
     ciphertext = Server_kemencaps($kpdk, pdkss, pdkpubkey)
 
     es = EarlySecret(pdkss)
@@ -78,14 +77,14 @@ in
       Fr(esk),
       Fr(pdkseed),
       ClientPdkState(tid, maybe_auth),
-      !Pk(S, pdkpubkey)
+      !Pk(S, $kpdk, pdkpubkey)
     ]
   --[ C0_PDK(tid),
       Start(tid, C, 'client'),
       running_client(Identity, C),
       EKem(tid, C, esk),
       Server_KemEncap($kpdk, pdkpubkey, pdkss),
-      Server_KemChal($kpdk, ~ltkS, Server_kempk($kpdk, ~ltkS), ciphertext, pdkss)
+      Server_KemChal($kpdk, pdkpubkey, ciphertext, pdkss)
     ]->
     [
       State(C1, tid, C, S, ClientState),
@@ -111,7 +110,7 @@ rule client_emit_pdk_certificate:
   [
     State(C1, tid, C, S, PrevClientState)[no_precomp],
     !Ltk(C, ~ltkC),
-    !Pk(C, certificate)
+    !Pk(C, $k, certificate)
   ] --[
     C1_PDK_cert(tid),
     Eq(certificate, Client_kempk($k, ~ltkC)),
@@ -162,9 +161,7 @@ let
     C = $C
     S = $S
 
-    ect = Ephem_kemencaps(ekem, Ephem_kemss(ekem, new_eseed), epk)
-
-    // Derive the shared secret
+    // Decapsulate whatever ciphertext was received
     ess = Ephem_kemdecaps(ekem, ect, esk)
 
     messages = <messages, ServerHello>
@@ -179,8 +176,8 @@ in
       Neq(ect, ekem),
       Eq(accepted_auth, prev_edi),
       Instance(tid, C, 'client'),
-      Ephem_KemDecaps(ekem, esk, ess),
-      Ephem_KemChal(ekem, esk, epk, ect, ess),
+      Ephem_KemDecaps(ekem, esk, ect, ess),
+      Ephem_KemChal(ekem, epk, ect, ess),
       running_client(Nonces, nc, ns),
       running_client(Identity, S, auth_status)
     ]->
@@ -246,8 +243,6 @@ let
     S = $S
     C = $C
 
-    some_ss = Client_kemss($kca, some_seed)
-    ciphertext = Client_kemencaps($kca, some_ss, Client_kempk($kca, ~ltkC))
     clauth_ss = Client_kemdecaps($kca, ciphertext, ~ltkC)
     messages = <messages, KemEncapsulation>
 
@@ -256,13 +251,13 @@ in
   [
     State(C2c_PDK, tid, C, S, PrevClientState)[no_precomp],
     In(senc{KemEncapsulation}hs_keys),
-    !Pk(C, Client_kempk($kca, ~ltkC)),
+    !Pk(C, $kca, Client_kempk($kca, ~ltkC)),
     !Ltk(C, ~ltkC)
   ] --[
     C2c_PDK(tid),
     Instance(tid, C, 'client'),
-    Client_KemDecaps($kca, ~ltkC, some_ss),
-    Client_KemChal($kca, ~ltkC, Client_kempk($kca, ~ltkC), ciphertext, clauth_ss)
+    Client_KemDecaps($kca, ~ltkC, ciphertext, clauth_ss),
+    Client_KemChal($kca, Client_kempk($kca, ~ltkC), ciphertext, clauth_ss)
   ]->
   [
     State(C2d_PDK, tid, C, S, ClientState)
