@@ -14,7 +14,7 @@ heuristics=("c" "i" "s" "C" "I" "S" "cs" "is" "ci")
 for heuristic in ${heuristics}; do
     echo -n "$(date) Trying heuristic '${heuristic}' "
     output=$(mktemp)
-    timeout --signal=KILL --kill-after "1m" --foreground "${timelimit}" tamarin-prover "${model}" --prove="${lemma}" --heuristic="${heuristic}" 2>/dev/null > "${output}"
+    timeout --signal=KILL --kill-after "1m" --foreground "${timelimit}" "${TAMARIN:-tamarin-prover}" ${=TAMARIN_FLAGS} "${model}" --prove="${lemma}" --heuristic="${heuristic}" 2>/dev/null > "${output}"
     if [ $? = 124 ]; then
         echo "Timed out after ${timelimit} and was killed"
     else 

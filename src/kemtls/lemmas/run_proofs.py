@@ -32,7 +32,8 @@ PAGE_SIZE: str = os.sysconf("SC_PAGE_SIZE")
 
 
 def run_tamarin(model: str, prove: Optional[str] = None) -> Tuple[str, str]:
-    cmd = ["time", "tamarin-prover", model]
+    cmd = ["time", os.environ.get("TAMARIN", "tamarin-prover"),
+           *shlex.split(os.environ.get("TAMARIN_FLAGS", "")), model]
     if prove is not None:
         modelname = model.removesuffix(".spthy")
         cmd.append(f"--prove={prove}")

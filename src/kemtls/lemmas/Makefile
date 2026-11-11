@@ -1,7 +1,9 @@
 DEPS= $(wildcard *.m4i) $(wildcard ../model/*.m4i) $(wildcard includes/*.m4i)
 M4= $(patsubst %.m4,%.spthy,$(wildcard *.m4))
 PIPE=--quit-on-warning 2>error.log 1>>success.log
-TAM=time tamarin-prover
+TAMARIN ?= tamarin-prover
+TAMARIN_FLAGS ?=
+TAM=time $(TAMARIN) $(TAMARIN_FLAGS)
 FLAGS :=-DPDK -DBASIC
 
 ifdef SPLIT_KEM
@@ -19,7 +21,7 @@ clean:
 	perl -0777pi -e 's/\n{3,}/\n\n/g' $@
 	# Replace "prev_" with "p_" to save space...
 	perl -0777pi -e 's/prev_/p_/g' $@
-	tamarin-prover +RTS -N4 -RTS --quit-on-warning $@ > /dev/null
+	$(TAMARIN) $(TAMARIN_FLAGS) +RTS -N4 -RTS --derivcheck-timeout=0 --quit-on-warning $@ > /dev/null
 
 
 %.proof: %.spthy
