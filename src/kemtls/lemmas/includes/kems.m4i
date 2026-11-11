@@ -137,26 +137,26 @@ lemma kem_consistency_server [heuristic=s]:
 !>)
 
 lemma kem_consistency_decaps_ephem [heuristic=s]:
-  "All kem sk ct ss ss2 #i.
+  "All kem sk ct ss seed #i.
     Ephem_KemDecaps(kem, sk, ct, ss)@i &
-    ct = Ephem_kemencaps(kem, ss2, Ephem_kempk(kem, sk))
+    ct = Ephem_kemencaps(kem, Ephem_kemss(kem, seed), Ephem_kempk(kem, sk))
     ==>
-      ss = ss2"
+      ss = Ephem_kemss(kem, seed)"
 
 ifdef(<!SPLIT_KEM!>, <!
 lemma kem_consistency_decaps_server [heuristic=s]:
-  "All kem sk ct ss ss2 #i.
+  "All kem sk ct ss seed #i.
     Server_KemDecaps(kem, sk, ct, ss)@i &
-    ct = Server_kemencaps(kem, ss2, Server_kempk(kem, sk))
+    ct = Server_kemencaps(kem, Server_kemss(kem, seed), Server_kempk(kem, sk))
     ==>
-      ss = ss2"
+      ss = Server_kemss(kem, seed)"
 
 lemma kem_consistency_decaps_client [heuristic=s]:
-  "All kem sk ct ss ss2 #i.
+  "All kem sk ct ss seed #i.
     Client_KemDecaps(kem, sk, ct, ss)@i &
-    ct = Client_kemencaps(kem, ss2, Client_kempk(kem, sk))
+    ct = Client_kemencaps(kem, Client_kemss(kem, seed), Client_kempk(kem, sk))
     ==>
-      ss = ss2"
+      ss = Client_kemss(kem, seed)"
 !>)
 
 lemma kem_consistency_chal_ephem [reuse, heuristic=c]:
