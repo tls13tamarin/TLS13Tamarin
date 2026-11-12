@@ -115,7 +115,7 @@ lemma matching_sessions [reuse, use_induction, heuristic=s, hide_lemma=posths_rm
       !>)
       "
 
-lemma auth_psk [reuse, use_induction, heuristic=c, hide_lemma=posths_rms_weak]:
+lemma auth_psk [reuse, use_induction, heuristic=s, hide_lemma=posths_rms_weak]:
   "All tid tid2 actor actor2 role role2 peer peer2 rms messages aas #i #j #k.
     running(RMS, actor, role, peer2, rms, messages)@i & 
     running2(RMS, peer, role2, actor2, rms, messages)@j &
