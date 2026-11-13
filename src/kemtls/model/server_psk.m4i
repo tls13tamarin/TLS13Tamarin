@@ -17,7 +17,6 @@ let
     nc = new_nc
     epk = new_epk
     ekem = $new_ekem
-    epk = Ephem_kempk(ekem, new_esk)
 
     ticket_age_add = ~ticket_age_add
     ticket = ~ticket
@@ -81,7 +80,6 @@ define(<!ServerHelloExtensions!>, <!< dnl
 rule server_hello_psk_dhe:
 let
     prev_ekem = $k
-    prev_epk = Ephem_kempk(prev_ekem, some_esk)
     prev_psk_ke_mode = <psk_ke, psk_dhe_ke> dnl <'0', '1'>
     prev_ns = ~ns
     prev_psk_id = ~ticket
@@ -109,7 +107,7 @@ in
     ]
   --[ S1_PSK_DHE(tid),
       Instance(tid, S, 'server'),
-      Ephem_KemChal(ekem, some_esk, epk, ect, ess),
+      Ephem_KemChal(ekem, epk, ect, ess),
       Ephem_KemEncap(ekem, epk, ess),
       running_server(Nonces, nc, ns)
     ]->

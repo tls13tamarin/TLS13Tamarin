@@ -108,15 +108,13 @@ lemma kemencap_source_pk_server [sources, heuristic=s]:
 
 lemma kemdecap_source_ct_ephem [sources, heuristic=s]:
   "All kem ciphertext sk ss #j.
-    Ephem_KemDecaps(kem, sk, ss)@j &
-    ciphertext = Ephem_kemencaps(kem, ss, Ephem_kempk(kem, sk))
+    Ephem_KemDecaps(kem, sk, ciphertext, ss)@j
     ==>
       (Ex #sh. KU(Extension('40', kem, ciphertext))@#sh & #sh < #j)"
   
 lemma kemdecap_source_ct_server [sources, heuristic=s]:
   "All kem ciphertext sk ss #j.
-    Server_KemDecaps(kem, sk, ss)@j &
-    ciphertext = Server_kemencaps(kem, ss, Server_kempk(kem, sk))
+    Server_KemDecaps(kem, sk, ciphertext, ss)@j
     ==>
       ifdef(<!PDK!>, <!
         (Ex act #kg #ch. GenLtk(act, sk)@#kg & KU(Extension('47', ciphertext))@#ch & #ch < #j) |
@@ -128,8 +126,7 @@ lemma kemdecap_source_ct_server [sources, heuristic=s]:
 
 lemma kemdecap_source_ct_client [sources, heuristic=s]:
   "All kem ciphertext sk ss #j.
-    Client_KemDecaps(kem, sk, ss)@j &
-    ciphertext = Client_kemencaps(kem, ss, Client_kempk(kem, sk))
+    Client_KemDecaps(kem, sk, ciphertext, ss)@j
     ==>
       (Ex keys act #kg #enc. 
         GenLtk(act, sk)@#kg & 
@@ -137,20 +134,20 @@ lemma kemdecap_source_ct_client [sources, heuristic=s]:
         #enc < #j)"
 
 lemma kemdecap_source_sk_ephem [heuristic=c]:
-  "All kem sk ss #j.
-    Ephem_KemDecaps(kem, sk, ss)@j
+  "All kem sk ct ss #j.
+    Ephem_KemDecaps(kem, sk, ct, ss)@j
     ==>
       (Ex tid a #i. EKem(tid, a, sk)@i & #i < #j)"
 
 lemma kemdecap_source_sk_server [heuristic=c]:
-  "All kem sk ss #j.
-    Server_KemDecaps(kem, sk, ss)@j
+  "All kem sk ct ss #j.
+    Server_KemDecaps(kem, sk, ct, ss)@j
     ==>
       (Ex a #l. GenLtk(a, sk)@l & #l < #j)"
 
 lemma kemdecap_source_sk_client [heuristic=c]:
-  "All kem sk ss #j.
-    Client_KemDecaps(kem, sk, ss)@j
+  "All kem sk ct ss #j.
+    Client_KemDecaps(kem, sk, ct, ss)@j
     ==>
       (Ex a #l. GenLtk(a, sk)@l & #l < #j)"
 
@@ -186,8 +183,7 @@ lemma kemencap_source_pk [sources, heuristic=s]:
 
 lemma kemdecap_source_ct [sources, heuristic=s]:
   "All kem ciphertext sk ss #j.
-    KemDecaps(kem, sk, ss)@j &
-    ciphertext = kemencaps(kem, ss, kempk(kem, sk))
+    KemDecaps(kem, sk, ciphertext, ss)@j
     ==>
       (Ex #sh. KU(Extension('40', kem, ciphertext))@#sh & #sh < #j) |
       ifdef(<!PDK!>, <!
@@ -199,8 +195,8 @@ lemma kemdecap_source_ct [sources, heuristic=s]:
         #enc < #j)"
 
 lemma kemdecap_source_sk [heuristic=c]:
-  "All kem sk ss #j.
-    KemDecaps(kem, sk, ss)@j
+  "All kem sk ct ss #j.
+    KemDecaps(kem, sk, ct, ss)@j
     ==>
       (Ex tid a #i. EKem(tid, a, sk)@i & #i < #j) |
       (Ex a #l. GenLtk(a, sk)@l & #l < #j)"

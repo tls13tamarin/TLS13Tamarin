@@ -1,3 +1,5 @@
+TAMARIN ?= tamarin-prover
+TAMARIN_FLAGS ?=
 DEPS= $(wildcard *.m4i)
 M4= $(patsubst %.m4,%.spthy,$(wildcard *.m4))
 ifndef NOBASIC
@@ -9,7 +11,7 @@ endif
 ifdef POST_HS
 	FLAGS := ${FLAGS} -DPOST_HS
 endif
-ifdef PDK
+ifndef NOPDK
 	FLAGS := ${FLAGS} -DPDK
 endif
 ifdef SPLIT_KEM
@@ -76,7 +78,7 @@ TEST_RULES := $(TEST_RULES) \
 	# C_ZeroRTT_Auth \
 	# S_RecvZeroRTTAuth
 endif
-ifdef PDK
+ifndef NOPDK
 TEST_RULES := $(TEST_RULES) \
 	C0_PDK \
 	C1_PDK_cert \
@@ -121,7 +123,7 @@ sanity-check.spthy: sanity-check.m4 ../model/*.m4* ../*.m4
 	@perl -0777pi -e 's/\n{3,}/\n\n/g' $@
 
 %.proof: %.spthy
-	tamarin-prover --quit-on-warning --heuristic=S --prove=exists_* $< --output=$@.wip 2> $*-output.log | tee $*-stdout.log
+	$(TAMARIN) $(TAMARIN_FLAGS) --quit-on-warning --heuristic=S --prove=exists_* $< --output=$@.wip 2> $*-output.log | tee $*-stdout.log
 	@grep -q verified $*-stdout.log
 	rm $*-stdout.log
 	mv $@.wip $@

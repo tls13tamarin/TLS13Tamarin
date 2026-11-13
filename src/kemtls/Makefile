@@ -1,5 +1,9 @@
+# Prover to run, e.g. `make TAMARIN=tamarin-rs`
+export TAMARIN ?= tamarin-prover
+export TAMARIN_FLAGS ?=
+
 # Enables simpler model
-export FLAGS=-D SIMPLE_MODEL
+#export FLAGS=-D SIMPLE_MODEL
 #export FLAGS=-D COMPACT_LABELS
 
 # Disables the pause step after each proof file is completed

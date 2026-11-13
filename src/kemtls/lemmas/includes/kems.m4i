@@ -5,9 +5,9 @@
 
 lemma ekem_pk_can_be_decapsed:
   exists-trace
-  "Ex tid a esk ekem ess #i #j.
+  "Ex tid a esk ekem ect ess #i #j.
      EKem(tid, a, esk)@#i
-     & Ephem_KemDecaps(ekem, esk, ess)@#j
+     & Ephem_KemDecaps(ekem, esk, ect, ess)@#j
      & not (Ex #r. RevEKemSk(tid, a, esk)@#r & #r < #j)"
 
 lemma ekem_sk_can_be_revealed:
@@ -118,7 +118,6 @@ lemma kem_consistency_ephem [heuristic=s]:
   "All kem pk ss #i.
     Ephem_KemEncap(kem, pk, ss)@i
     ==>
-      (Ex sk. pk = Ephem_kempk(kem, sk)) &
       (Ex seed. ss = Ephem_kemss(kem, seed))"
 
 ifdef(<!SPLIT_KEM!>, <!
@@ -138,49 +137,73 @@ lemma kem_consistency_server [heuristic=s]:
 !>)
 
 lemma kem_consistency_decaps_ephem [heuristic=s]:
-  "All kem sk ss #i.
-    Ephem_KemDecaps(kem, sk, ss)@i
+  "All kem sk ct ss seed #i.
+    Ephem_KemDecaps(kem, sk, ct, ss)@i &
+    ct = Ephem_kemencaps(kem, Ephem_kemss(kem, seed), Ephem_kempk(kem, sk))
     ==>
-      (Ex seed. ss = Ephem_kemss(kem, seed))"
+      ss = Ephem_kemss(kem, seed)"
 
 ifdef(<!SPLIT_KEM!>, <!
 lemma kem_consistency_decaps_server [heuristic=s]:
-  "All kem sk ss #i.
-    Server_KemDecaps(kem, sk, ss)@i
+  "All kem sk ct ss seed #i.
+    Server_KemDecaps(kem, sk, ct, ss)@i &
+    ct = Server_kemencaps(kem, Server_kemss(kem, seed), Server_kempk(kem, sk))
     ==>
-      (Ex seed. ss = Server_kemss(kem, seed))"
+      ss = Server_kemss(kem, seed)"
 
 lemma kem_consistency_decaps_client [heuristic=s]:
-  "All kem sk ss #i.
-    Client_KemDecaps(kem, sk, ss)@i
+  "All kem sk ct ss seed #i.
+    Client_KemDecaps(kem, sk, ct, ss)@i &
+    ct = Client_kemencaps(kem, Client_kemss(kem, seed), Client_kempk(kem, sk))
     ==>
-      (Ex seed. ss = Client_kemss(kem, seed))"
+      ss = Client_kemss(kem, seed)"
 !>)
 
 lemma kem_consistency_chal_ephem [reuse, heuristic=c]:
-  "All kem sk pk ct ss #i.
-    Ephem_KemChal(kem, sk, pk, ct, ss)@#i
+  "All kem pk ct ss #i.
+    Ephem_KemChal(kem, pk, ct, ss)@#i &
+    Ephem_KemEncap(kem, pk, ss)@#i
     ==>
-      pk = Ephem_kempk(kem, sk) &
       ct = Ephem_kemencaps(kem, ss, pk) &
       (Ex seed. ss = Ephem_kemss(kem, seed))"
 
+lemma kem_consistency_chal_decaps_ephem [reuse, heuristic=c]:
+  "All kem sk pk ct ss #i.
+    Ephem_KemChal(kem, pk, ct, ss)@#i &
+    Ephem_KemDecaps(kem, sk, ct, ss)@#i
+    ==>
+      pk = Ephem_kempk(kem, sk)"
+
 ifdef(<!SPLIT_KEM!>, <!
 lemma kem_consistency_chal_client [reuse, heuristic=c]:
-  "All kem sk pk ct ss #i.
-    Client_KemChal(kem, sk, pk, ct, ss)@#i
+  "All kem pk ct ss #i.
+    Client_KemChal(kem, pk, ct, ss)@#i &
+    Client_KemEncap(kem, pk, ss)@#i
     ==>
-      pk = Client_kempk(kem, sk) &
       ct = Client_kemencaps(kem, ss, pk) &
       (Ex seed. ss = Client_kemss(kem, seed))"
 
-lemma kem_consistency_chal_server [reuse, heuristic=c]:
+lemma kem_consistency_chal_decaps_client [reuse, heuristic=c]:
   "All kem sk pk ct ss #i.
-    Server_KemChal(kem, sk, pk, ct, ss)@#i
+    Client_KemChal(kem, pk, ct, ss)@#i &
+    Client_KemDecaps(kem, sk, ct, ss)@#i
     ==>
-      pk = Server_kempk(kem, sk) &
+      pk = Client_kempk(kem, sk)"
+
+lemma kem_consistency_chal_server [reuse, heuristic=c]:
+  "All kem pk ct ss #i.
+    Server_KemChal(kem, pk, ct, ss)@#i &
+    Server_KemEncap(kem, pk, ss)@#i
+    ==>
       ct = Server_kemencaps(kem, ss, pk) &
       (Ex seed. ss = Server_kemss(kem, seed))"
+
+lemma kem_consistency_chal_decaps_server [reuse, heuristic=c]:
+  "All kem sk pk ct ss #i.
+    Server_KemChal(kem, pk, ct, ss)@#i &
+    Server_KemDecaps(kem, sk, ct, ss)@#i
+    ==>
+      pk = Server_kempk(kem, sk)"
 !>)
 
 lemma kem_encaps_unique_ephem [reuse, heuristic=c]:
@@ -209,26 +232,26 @@ lemma kem_encaps_unique_server [reuse, heuristic=c]:
 // manually proves; guide it through as many kemencaps() operations as possible.
 // oracle handles this for us.
 lemma kem_encaps_ordering [reuse, heuristic=o "oracles/kem_encaps_ordering.py"]:
-  "All kem pk sk ss #i #j.
+  "All kem pk sk ct ss #i #j.
     Ephem_KemEncap(kem, pk, ss)@i &
-    Ephem_KemDecaps(kem, sk, ss)@j &
+    Ephem_KemDecaps(kem, sk, ct, ss)@j &
     pk = Ephem_kempk(kem, sk)
     ==>
     #i < #j"
 
 ifdef(<!SPLIT_KEM!>, <!
 lemma kem_encaps_ordering_server [reuse, heuristic=o "oracles/kem_encaps_ordering.py"]:
-  "All kem pk sk ss #i #j.
+  "All kem pk sk ct ss #i #j.
     Server_KemEncap(kem, pk, ss)@i &
-    Server_KemDecaps(kem, sk, ss)@j &
+    Server_KemDecaps(kem, sk, ct, ss)@j &
     pk = Server_kempk(kem, sk)
     ==>
     #i < #j"
 
 lemma kem_encaps_ordering_client [reuse, heuristic=o "oracles/kem_encaps_ordering.py"]:
-  "All kem pk sk ss #i #j.
+  "All kem pk sk ct ss #i #j.
     Client_KemEncap(kem, pk, ss)@i &
-    Client_KemDecaps(kem, sk, ss)@j &
+    Client_KemDecaps(kem, sk, ct, ss)@j &
     pk = Client_kempk(kem, sk)
     ==>
     #i < #j"
@@ -238,47 +261,47 @@ lemma kem_encaps_ordering_client [reuse, heuristic=o "oracles/kem_encaps_orderin
 // make the decapsing party decaps the same ct twice by
 // repeating the ciphertext
 lemma kem_ephemeral_decaps_unique [heuristic=s]:
-  "All tid a kem sk ss #k #i #j.
+  "All tid a kem sk ct ct2 ss #k #i #j.
     EKem(tid, a, sk)@#k &
-    Ephem_KemDecaps(kem, sk, ss)@#i &
-    Ephem_KemDecaps(kem, sk, ss)@#j
+    Ephem_KemDecaps(kem, sk, ct, ss)@#i &
+    Ephem_KemDecaps(kem, sk, ct2, ss)@#j
     ==>
     #i = #j"
 
 // chal_dual
 ifdef(<!SPLIT_KEM!>, <!
 lemma kem_chal_dual_ephem [reuse]:
-  "All tid tid2 actor actor2 kem sk pk ct ss #i #j #r.
-    Ephem_KemChal(kem, sk, pk, ct, ss)@#i & Instance(tid, actor, 'client')@#i &
-    Ephem_KemChal(kem, sk, pk, ct, ss)@#j & Instance(tid2, actor2, 'server')@#j &
+  "All tid tid2 actor actor2 kem pk ct ss #i #j #r.
+    Ephem_KemChal(kem, pk, ct, ss)@#i & Instance(tid, actor, 'client')@#i &
+    Ephem_KemChal(kem, pk, ct, ss)@#j & Instance(tid2, actor2, 'server')@#j &
     KU(ss)@#r
     ==>
-    (Ex #kg #p. (EKem(tid, actor, sk)@#kg & RevEKemSk(tid, actor, sk)@#p & #p < #r))"
+    (Ex sk #kg #p. (EKem(tid, actor, sk)@#kg & pk = Ephem_kempk(kem, sk) & RevEKemSk(tid, actor, sk)@#p & #p < #r))"
 
 lemma kem_chal_dual_server [reuse]:
-  "All tid tid2 actor actor2 kem sk pk ct ss #i #j #r.
-    Server_KemChal(kem, sk, pk, ct, ss)@#i & Instance(tid, actor, 'client')@#i &
-    Server_KemChal(kem, sk, pk, ct, ss)@#j & Instance(tid2, actor2, 'server')@#j &
+  "All tid tid2 actor actor2 kem pk ct ss #i #j #r.
+    Server_KemChal(kem, pk, ct, ss)@#i & Instance(tid, actor, 'client')@#i &
+    Server_KemChal(kem, pk, ct, ss)@#j & Instance(tid2, actor2, 'server')@#j &
     KU(ss)@#r
     ==>
-    (Ex #kg #s. (GenLtk(actor2, sk)@#kg & RevLtk(actor2)@#s & #s < #r))"
+    (Ex sk #kg #s. (GenLtk(actor2, sk)@#kg & pk = Server_kempk(kem, sk) & RevLtk(actor2)@#s & #s < #r))"
 
 lemma kem_chal_dual_client [reuse]:
-  "All tid tid2 actor actor2 kem sk pk ct ss #i #j #r.
-    Client_KemChal(kem, sk, pk, ct, ss)@#i & Instance(tid, actor, 'client')@#i &
-    Client_KemChal(kem, sk, pk, ct, ss)@#j & Instance(tid2, actor2, 'server')@#j &
+  "All tid tid2 actor actor2 kem pk ct ss #i #j #r.
+    Client_KemChal(kem, pk, ct, ss)@#i & Instance(tid, actor, 'client')@#i &
+    Client_KemChal(kem, pk, ct, ss)@#j & Instance(tid2, actor2, 'server')@#j &
     KU(ss)@#r
     ==>
-    (Ex #kg #c. (GenLtk(actor, sk)@#kg & RevLtk(actor)@#c & #c < #r))"
+    (Ex sk #kg #c. (GenLtk(actor, sk)@#kg & pk = Client_kempk(kem, sk) & RevLtk(actor)@#c & #c < #r))"
 
 !>,<!
 lemma kem_chal_dual [reuse]:
-  "All tid tid2 actor actor2 kem sk pk ct ss #i #j #r.
-    KemChal(kem, sk, pk, ct, ss)@#i & Instance(tid, actor, 'client')@#i &
-    KemChal(kem, sk, pk, ct, ss)@#j & Instance(tid2, actor2, 'server')@#j &
+  "All tid tid2 actor actor2 kem pk ct ss #i #j #r.
+    KemChal(kem, pk, ct, ss)@#i & Instance(tid, actor, 'client')@#i &
+    KemChal(kem, pk, ct, ss)@#j & Instance(tid2, actor2, 'server')@#j &
     KU(ss)@#r
     ==>
-    (Ex #kg #p. (EKem(tid, actor, sk)@#kg & RevEKemSk(tid, actor, sk)@#p & #p < #r)) |
-    (Ex #kg #c. (GenLtk(actor, sk)@#kg & RevLtk(actor)@#c & #c < #r))  |
-    (Ex #kg #s. (GenLtk(actor2, sk)@#kg & RevLtk(actor2)@#s & #s < #r))"
+    (Ex sk #kg #p. (EKem(tid, actor, sk)@#kg & pk = kempk(kem, sk) & RevEKemSk(tid, actor, sk)@#p & #p < #r)) |
+    (Ex sk #kg #c. (GenLtk(actor, sk)@#kg & pk = kempk(kem, sk) & RevLtk(actor)@#c & #c < #r)) |
+    (Ex sk #kg #s. (GenLtk(actor2, sk)@#kg & pk = kempk(kem, sk) & RevLtk(actor2)@#s & #s < #r))"
 !>)

@@ -38,7 +38,7 @@ let
     client_sekem = <k1, k2>
     nc = new_nc
     ekem = $new_ekem
-    epk = Ephem_kempk(ekem, new_esk)
+    epk = new_epk
 
     // Abstract client identity - does not currently correspond to
     // anything concrete
@@ -103,7 +103,6 @@ define(<!ServerHelloExtensions!>, <!<SignatureSchemeList, KeyShareSH>!>)
 rule server_emit_hello:
 let
     prev_ekem = $prev_ekem
-    prev_epk = Ephem_kempk(prev_ekem, some_esk)
     set_state()
 
     // Server continuing in normal mode (no PSK mode)
@@ -129,7 +128,7 @@ in
       Eq(ekem, sekem),
       Instance(tid, S, 'server'),
       running_server(Nonces, nc, ns),
-      Ephem_KemChal(ekem, some_esk, epk, ect, ess),
+      Ephem_KemChal(ekem, epk, ect, ess),
       Ephem_KemEncap(ekem, epk, ess)
     ]->
     [
@@ -227,7 +226,8 @@ let
     messages = <messages, Certificate>
 in
     [ State(S2d, tid, S, C, PrevServerState)[no_precomp],
-      !Ltk(S, ~ltkS)
+      !Ltk(S, ~ltkS),
+      !Pk(S, $k, certificate)
     ]--[
       S2d(tid),
       Instance(tid, S, 'server'),
@@ -241,9 +241,6 @@ in
 rule server_receive_kemencaps:
 let
     set_state()
-
-    shared_secret = Server_kemss($k, saseed)
-    ciphertext = Server_kemencaps($k, shared_secret, Server_kempk($k, ~ltkS))
 
     ss = Server_kemdecaps($k, ciphertext, ~ltkS)
 
@@ -260,7 +257,8 @@ in
     [ 
       State(S2e, tid, S, C, PrevServerState),
       In(senc{KemEncapsulation}hs_keyc),
-      !Ltk(S, ~ltkS)
+      !Ltk(S, ~ltkS),
+      !Pk(S, $k, Server_kempk($k, ~ltkS))
     ] --[
       S2e(tid),
       Instance(tid, S, 'server'),
@@ -269,8 +267,8 @@ in
       running_server(Identity, C, auth_status),
       running_server(MutualAuthSecret, ss, auth_status),
       Eq(psk_ke_mode, 'na'),
-      Server_KemDecaps($k, ~ltkS, ss),
-      Server_KemChal($k, ~ltkS, Server_kempk($k, ~ltkS), ciphertext, ss)
+      Server_KemDecaps($k, ~ltkS, ciphertext, ss),
+      Server_KemChal($k, Server_kempk($k, ~ltkS), ciphertext, ss)
     ]-> [
       State(S3, tid, S, C, ServerState)
     ]
@@ -283,7 +281,6 @@ let
     C = $C
     S = $S
 
-    certificate = Client_kempk($k, ~ltkC)
     certificate_request_context = '0' 
     messages = <messages, Certificate>
 
@@ -297,14 +294,14 @@ let
     auth_status = <'auth', 'auth'>
 in
     [ State(S3, tid, S, C, PrevServerState)[no_precomp],
-      !Pk(C, Client_kempk($k, ~ltkC)),
+      !Pk(C, $k, certificate),
       Fr(~caseed),
       In(senc{Certificate}ahs_keyc)
     ]
   --[ S3_cert(tid),
       Instance(tid, S, 'server'),
       Client_KemEncap($k, certificate, clauth_ss),
-      Client_KemChal($k, ~ltkC, certificate, ciphertext, clauth_ss),
+      Client_KemChal($k, certificate, ciphertext, clauth_ss),
       running_server(AuthSecret, clauth_ss, auth_status),
       running_server(Identity, C, auth_status)
     ]->

@@ -146,11 +146,8 @@ let
     C = $C
     S = $S
 
-    // equivalent to checking kempk in <$ekem>
-    // pattern matches through In(SH)
-    ect = Ephem_kemencaps(ekem, Ephem_kemss(ekem, new_eseed), epk)
-
-    // Derive the shared secret
+    // Decapsulate whatever ciphertext was received; a malformed ect
+    // yields the irreducible kemdecaps term (implicit rejection)
     ess = Ephem_kemdecaps(ekem, ect, esk)
 
     // Received a basic server hello - abandon PSK mode (if attempted)
@@ -168,8 +165,8 @@ in
   --[ C1(tid),
       Neq(edi, 'cert'),
       Instance(tid, C, 'client'),
-      Ephem_KemDecaps(ekem, esk, ess),
-      Ephem_KemChal(ekem, esk, epk, ect, ess),
+      Ephem_KemDecaps(ekem, esk, ect, ess),
+      Ephem_KemChal(ekem, epk, ect, ess),
       running_client(Nonces, nc, ns)
     ]->
     [
@@ -270,8 +267,7 @@ let
   C = $C
 
   certificate_request_context = '0'
-  certificate = Server_kempk($k, ~ltkS)
-  
+
   messages = <messages, Certificate>
   
   ss = Server_kemss($k, ~saseed)
@@ -290,7 +286,7 @@ let
 in
   [
     State(C2d, tid, C, S, PrevClientState)[no_precomp],
-    !Pk(S, Server_kempk($k, ~ltkS)),
+    !Pk(S, $k, certificate),
     Fr(~saseed),
     In(senc{Certificate}hs_keys)
   ]
@@ -304,7 +300,7 @@ in
     running_client(Identity, S, auth_status),
     running_client(AuthSecret, ss, auth_status),
     Server_KemEncap($k, certificate, ss),
-    Server_KemChal($k, ~ltkS, certificate, ciphertext, ss)
+    Server_KemChal($k, certificate, ciphertext, ss)
   ]->
   [
     State(C3, tid, C, S, ClientState),
@@ -371,7 +367,8 @@ let
 in
   [
     State(C3, tid, C, S, PrevClientState)[no_precomp],
-    !Ltk(C, ~ltkC)
+    !Ltk(C, ~ltkC),
+    !Pk(C, $k, certificate)
   ]
   --[
     C3_cert(tid),
@@ -391,7 +388,6 @@ let
     C = $C
 
 
-    ciphertext = Client_kemencaps($k, Client_kemss($k, caseed), Client_kempk($k, ~ltkC))
     clauth_ss = Client_kemdecaps($k, ciphertext, ~ltkC)
     messages = <messages, KemEncapsulation>
 
@@ -415,12 +411,13 @@ let
 in
     [ State(C3a, tid, C, S, PrevClientState)[no_precomp],
       In(senc{KemEncapsulation}ahs_keys),
-      !Ltk(C, ~ltkC)
+      !Ltk(C, ~ltkC),
+      !Pk(C, $k, Client_kempk($k, ~ltkC))
     ]
   --[ C3a(tid),
       Instance(tid, C, 'client'),
-      Client_KemDecaps($k, ~ltkC, clauth_ss),
-      Client_KemChal($k, ~ltkC, Client_kempk($k, ~ltkC), ciphertext, clauth_ss),
+      Client_KemDecaps($k, ~ltkC, ciphertext, clauth_ss),
+      Client_KemChal($k, Client_kempk($k, ~ltkC), ciphertext, clauth_ss),
       running_client(Transcript, finished_messages),
       running_client(MS, clauth_ss, ms),
       running_client(AHSMS, ahs, ms, clauth_ss),
