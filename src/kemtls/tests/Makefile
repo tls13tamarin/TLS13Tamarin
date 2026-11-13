@@ -11,7 +11,7 @@ endif
 ifdef POST_HS
 	FLAGS := ${FLAGS} -DPOST_HS
 endif
-ifdef PDK
+ifndef NOPDK
 	FLAGS := ${FLAGS} -DPDK
 endif
 ifdef SPLIT_KEM
@@ -78,7 +78,7 @@ TEST_RULES := $(TEST_RULES) \
 	# C_ZeroRTT_Auth \
 	# S_RecvZeroRTTAuth
 endif
-ifdef PDK
+ifndef NOPDK
 TEST_RULES := $(TEST_RULES) \
 	C0_PDK \
 	C1_PDK_cert \
