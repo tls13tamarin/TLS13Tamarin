@@ -6,7 +6,7 @@ on:
   push:
     paths:
       - "src/kemtls/model/**"
-      - "src/kemtls/test/**"
+      - "src/kemtls/tests/**"
       - ".github/workflows/reachability.yaml"
     branches:
       - kem-auth
@@ -16,17 +16,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Record homebrew cache location
-        run: "echo '::set-output name=CACHE_DIR::'$(brew --cache)"
+        run: echo "CACHE_DIR=$(brew --cache)" >> "$GITHUB_OUTPUT"
         id: cache_path
       - name: Cache homebrew stuffs
-        uses: actions/cache@v2
+        uses: actions/cache@v4
         with:
           path: ${{ steps.cache_path.outputs.CACHE_DIR }}
           key: ${{ runner.os }}-homebrew
       - name: Install tamarin
         run: |
           brew install tamarin-prover/tap/tamarin-prover
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Run reachability tests
         run: |
           make test
