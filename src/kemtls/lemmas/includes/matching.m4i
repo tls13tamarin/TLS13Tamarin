@@ -25,11 +25,11 @@ lemma matching_ahsms [reuse, heuristic=c]:
 
 define(<!lemma_matching_hsahsms_all!>, <!
 lemma matching_hsahsms_all [reuse, heuristic=c]:
-  "All tid actor role hs hs2 ahs ahs2 ms ms2 clauth_ss #i #j #k #l.
+  "All tid actor role hs hs2 ahs ahs2 ms ms2 #i #j #k #l.
     commit(HS, actor, role, hs2)@i &
     commit(AHS, actor, role, ahs2)@j &
     commit(MS, actor, role, ms2)@k &
-    running(HSAHSMS, actor, role, hs, ahs, ms, clauth_ss)@l ==>
+    running(HSAHSMS, actor, role, hs, ahs, ms)@l ==>
       (hs = hs2 & ahs = ahs2 & ms = ms2)"
 !>)
 

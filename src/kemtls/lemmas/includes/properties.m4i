@@ -11,14 +11,14 @@ lemma secret_session_keys [
   "All tid actor peer kw kr pas #i.
       SessionKey(tid, actor, peer, <pas, 'auth'>, <kw, kr>)@i &
       not (Ex #r. RevLtk(peer)@r & #r < #i) &
-      not (Ex tid3 esk #r. RevEKemSk(tid3, peer, esk)@r & #r < #i) &
-      not (Ex tid4 esk #r. RevEKemSk(tid4, actor, esk)@r & #r < #i)
+      not RevPeerEphem(#i) &
+      not RevOwnEphem(#i)
       ifdef(<!PSK!>, <!
       &
       not (Ex rms #r. RevealPSK(actor, rms)@r) &
       not (Ex rms #r. RevealPSK(peer, rms)@r)
       !>)
-    ==> not Ex #j. K(kr)@j"
+    ==> (not Ex #j. K(kr)@j) & (not Ex #j. K(kw)@j)"
 
 lemma secret_session_keys_allow_ephem_reveal [
       hide_lemma=handshake_secret,
@@ -48,7 +48,7 @@ lemma secret_session_keys_allow_ephem_reveal [
       not (Ex rms #r. RevealPSK(actor, rms)@r) &
       not (Ex rms #r. RevealPSK(peer, rms)@r)
       !>)
-    ==> not Ex #j. K(kr)@j"
+    ==> (not Ex #j. K(kr)@j) & (not Ex #j. K(kw)@j)"
 
 lemma session_key_auth_agreement [
     reuse,
@@ -79,7 +79,7 @@ lemma session_key_auth_agreement [
      running2(Nonces, peer2, 'server', nonces)@l &
       not (Ex #r. RevLtk(peer)@r & #r < #i) &
       not (Ex #r. RevLtk(actor2)@r & #r < #k) &
-      not (Ex tid3 esk #r. RevEKemSk(tid3, actor, esk)@r & #r < #i & #r < #k)
+      not (Ex esk #r. RevEKemSk(tid, actor, esk)@r & #r < #i & #r < #k)
       ifdef(<!PSK!>, <!
       &
       not (Ex rms #r. RevealPSK(actor, rms)@r & #r < #i & #r < #k) &
@@ -117,7 +117,7 @@ lemma session_key_agreement [
      running2(Nonces, peer2, 'server', nonces)@l &
       not (Ex #r. RevLtk(peer)@r & #r < #i) &
       not (Ex #r. RevLtk(actor2)@r & #r < #k) &
-      not (Ex tid3 esk #r. RevEKemSk(tid3, actor, esk)@r & #r < #i & #r < #k)
+      not (Ex esk #r. RevEKemSk(tid, actor, esk)@r & #r < #i & #r < #k)
       ifdef(<!PSK!>, <!
       &
       not (Ex rms #r. RevealPSK(actor, rms)@r & #r < #i & #r < #k) &

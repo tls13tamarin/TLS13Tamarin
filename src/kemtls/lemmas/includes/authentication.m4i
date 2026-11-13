@@ -80,8 +80,8 @@ lemma injective_mutual_entity_authentication [reuse, hide_lemma=posths_rms]:
   "All tid actor peer role nonces aas #i.
       commit(Nonces, actor, role, nonces)@i & commit(Identity, actor, role, peer, <aas, 'auth'>)@i &
       not (Ex #r. RevLtk(peer)@r & #r < #i) &
-      not (Ex tid3 esk #r. RevEKemSk(tid3, peer, esk)@r & #r < #i) &
-      not (Ex tid4 esk #r. RevEKemSk(tid4, actor, esk)@r & #r < #i) 
+      not RevPeerEphem(#i) &
+      not RevOwnEphem(#i) 
       ifdef(<!PSK!>, <!
       &
       not (Ex rms #r. RevealPSK(actor, rms)@r) &

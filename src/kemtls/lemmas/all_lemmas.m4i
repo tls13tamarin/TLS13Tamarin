@@ -1,3 +1,12 @@
+dnl Reveal of an ephemeral KEM key used by this session (tid, actor, peer),
+dnl before time $1. Only clients hold ephemeral secret keys: a client session
+dnl reveals its own key; a server session uses the client key it encapsulated to.
+define(<!RevOwnEphem!>, <!(Ex esk_o #r_o. RevEKemSk(tid, actor, esk_o)@#r_o & #r_o < $1)!>)
+define(<!RevPeerEphem!>, <!(Ex tid_p esk_p ekem_p ess_p #e_p #r_p.
+    Instance(tid, actor, 'server')@#e_p &
+    Ephem_KemEncap(ekem_p, Ephem_kempk(ekem_p, esk_p), ess_p)@#e_p &
+    RevEKemSk(tid_p, peer, esk_p)@#r_p & #r_p < $1)!>)
+
 define(<!uniq!>, <!
 lemma one_$1_per_tid [reuse, heuristic=i]:
     "All tid #i #j. $1(tid)@i & $1(tid)@j ==> #i = #j"
